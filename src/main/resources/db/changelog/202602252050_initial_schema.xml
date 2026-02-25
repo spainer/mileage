@@ -1,0 +1,60 @@
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="202602252050" author="Sven Painer">
+      <createTable tableName="car">
+         <column name="id" type="uuid">
+            <constraints primaryKey="true" nullable="false" />
+         </column>
+         <column name="model" type="varchar(255)">
+            <constraints nullable="true" />
+         </column>
+         <column name="license" type="varchar(9)">
+            <constraints nullable="false" />
+         </column>
+      </createTable>
+
+      <createTable tableName="car_mileage">
+         <column name="id" type="uuid">
+            <constraints primaryKey="true" nullable="false" />
+         </column>
+         <column name="car_id" type="uuid">
+            <constraints nullable="false" foreignKeyName="fk_car_mileage_car" references="car(id)" deleteCascade="true" />
+         </column>
+         <column name="mileage_date" type="date">
+            <constraints nullable="false" />
+         </column>
+         <column name="mileage" type="integer">
+            <constraints nullable="false" />
+         </column>
+      </createTable>
+
+      <createIndex tableName="car_mileage" indexName="idx_car_mileage_car_id">
+         <column name="car_id" />
+      </createIndex>
+
+      <createTable tableName="insurance_mileage">
+         <column name="id" type="uuid">
+            <constraints primaryKey="true" nullable="false" />
+         </column>
+         <column name="car_id" type="uuid">
+            <constraints nullable="false" foreignKeyName="fk_insurance_mileage_car" references="car(id)" deleteCascade="true" />
+         </column>
+         <column name="date_mileage" type="date">
+            <constraints nullable="false" />
+         </column>
+         <column name="mileage_per_year" type="integer">
+            <constraints nullable="false" />
+         </column>
+         <column name="current_mileage" type="integer">
+            <constraints nullable="false" />
+         </column>
+      </createTable>
+
+      <createIndex tableName="insurance_mileage" indexName="idx_insurance_mileage_car_id">
+         <column name="car_id" />
+      </createIndex>
+
+    </changeSet>
+
+</databaseChangeLog>
