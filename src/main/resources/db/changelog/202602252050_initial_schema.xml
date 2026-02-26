@@ -24,7 +24,7 @@
          <column name="mileage_date" type="date">
             <constraints nullable="false" />
          </column>
-         <column name="mileage" type="integer">
+         <column name="value" type="integer">
             <constraints nullable="false" />
          </column>
       </createTable>
@@ -40,7 +40,7 @@
          <column name="car_id" type="uuid">
             <constraints nullable="false" foreignKeyName="fk_insurance_mileage_car" references="car(id)" deleteCascade="true" />
          </column>
-         <column name="date_mileage" type="date">
+         <column name="mileage_date" type="date">
             <constraints nullable="false" />
          </column>
          <column name="mileage_per_year" type="integer">
