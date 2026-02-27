@@ -3,22 +3,22 @@
 
     <changeSet id="202602252050" author="Sven Painer">
       <createTable tableName="car">
-         <column name="id" type="uuid">
+         <column name="id" type="char(36)">
             <constraints primaryKey="true" nullable="false" />
+         </column>
+         <column name="license" type="char(9)">
+            <constraints nullable="false" />
          </column>
          <column name="model" type="varchar(255)">
             <constraints nullable="true" />
          </column>
-         <column name="license" type="varchar(9)">
-            <constraints nullable="false" />
-         </column>
       </createTable>
 
       <createTable tableName="car_mileage">
-         <column name="id" type="uuid">
+         <column name="id" type="char(36)">
             <constraints primaryKey="true" nullable="false" />
          </column>
-         <column name="car_id" type="uuid">
+         <column name="car_id" type="char(36)">
             <constraints nullable="false" foreignKeyName="fk_car_mileage_car" references="car(id)" deleteCascade="true" />
          </column>
          <column name="mileage_date" type="date">
@@ -34,10 +34,10 @@
       </createIndex>
 
       <createTable tableName="insurance_mileage">
-         <column name="id" type="uuid">
+         <column name="id" type="char(36)">
             <constraints primaryKey="true" nullable="false" />
          </column>
-         <column name="car_id" type="uuid">
+         <column name="car_id" type="char(36)">
             <constraints nullable="false" foreignKeyName="fk_insurance_mileage_car" references="car(id)" deleteCascade="true" />
          </column>
          <column name="mileage_date" type="date">
