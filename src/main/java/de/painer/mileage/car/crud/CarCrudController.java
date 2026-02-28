@@ -15,12 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/cars")
 @RequiredArgsConstructor
-@Slf4j
 public class CarCrudController {
 
     private final CarCrudService carCrudService;
