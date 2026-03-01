@@ -2,18 +2,29 @@ package de.painer.mileage.car.evaluate;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Interpolator for insurance reports.
+ * 
+ * <p>
+ * The interpolator is initialized with a collection of insurance reports. It is then possible to
+ * calculate the maximum allowed mileage for a given date. It will return the exact values for dates
+ * given as insurance reports und assume linear limits through the year after reports with the
+ * reported mileage per year.
+ * </p>
+ */
 @Slf4j
 class InsuranceInterpolator {
 
     private final List<Report> reports;
 
-    InsuranceInterpolator(@NonNull List<Report> reports) {
+    InsuranceInterpolator(@NonNull Collection<Report> reports) {
         if (reports.isEmpty()) throw new IllegalArgumentException("reports must not be empty");
         this.reports = reports.stream().sorted(Comparator.comparing(r -> r.date())).toList();
     }
