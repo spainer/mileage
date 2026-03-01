@@ -29,7 +29,7 @@ class InsuranceInterpolator {
         this.reports = reports.stream().sorted(Comparator.comparing(r -> r.date())).toList();
     }
 
-    public long getValue(LocalDate date) {
+    public int getValue(LocalDate date) {
         if (date.isBefore(reports.getFirst().date())) {
             throw new IllegalArgumentException("date is before first report");
         }
@@ -44,7 +44,7 @@ class InsuranceInterpolator {
         long daysSinceReport = report.date().until(date, ChronoUnit.DAYS);
         long daysFullYears = report.date().until(report.date().plusYears(yearsSinceReport), ChronoUnit.DAYS);
 
-        return report.currentMileage() + report.mileagePerYear() * yearsSinceReport * daysSinceReport / daysFullYears;
+        return (int) (report.currentMileage() + report.mileagePerYear() * yearsSinceReport * daysSinceReport / daysFullYears);
     }
 
     private Report findRelevantReport(LocalDate date) {
