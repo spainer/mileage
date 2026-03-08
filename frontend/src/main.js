@@ -4,7 +4,6 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
 import PrimeVue from 'primevue/config'
-import Button from 'primevue/button'
 import Aura from '@primeuix/themes/aura'
 
 import App from './App.vue'
@@ -20,7 +19,5 @@ app.use(PrimeVue, {
         preset: Aura
     }
 })
-
-app.component('Button', Button)
 
 app.mount('#app')
