@@ -1,11 +1,10 @@
 <script setup>
-import { ref } from 'vue';
+import { watch } from 'vue';
 
 import Menubar from 'primevue/menubar'
 import Select from 'primevue/select'
-import { useCarsListStore } from '@/stores/cars-list';
-import { useCurrentCarStore } from '@/stores/current-car';
 import { useRouter } from 'vue-router';
+import { useCarsStore } from '@/stores/cars';
 
 const router = useRouter()
 const menuItems = router.getRoutes().filter(route => route.meta?.title).map(route => ({
@@ -14,9 +13,10 @@ const menuItems = router.getRoutes().filter(route => route.meta?.title).map(rout
     icon: route.meta.icon ? `pi pi-${route.meta.icon}` : null
 }))
 
-const carsListStore = useCarsListStore()
-const currentCarStore = useCurrentCarStore()
-
+const carsStore = useCarsStore()
+watch(() => carsStore.currentCarId, async id => {
+    await carsStore.selectCar(id)
+})
 </script>
 
 <template>
@@ -31,7 +31,7 @@ const currentCarStore = useCurrentCarStore()
         </template>
 
         <template #end>
-            <Select v-model="currentCarStore.currentCarId" :options="carsListStore.cars" optionValue="id" optionLabel="model"></Select>
+            <Select v-model="carsStore.currentCarId" :options="carsStore.carsList" optionValue="id" optionLabel="model"></Select>
         </template>
     </Menubar>
 </template>

@@ -1,3 +1,8 @@
+<script setup>
+import { useCarsStore } from '@/stores/cars'
+
+const carsStore = useCarsStore()
+</script>
 <template>
-    <div>Mileage</div>
+    <div>{{ carsStore.currentCar?.mileages }}</div>
 </template>
