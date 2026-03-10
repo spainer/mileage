@@ -12,9 +12,11 @@ import de.painer.mileage.car_mileage.CarMileageRepository;
 import de.painer.mileage.insurance_mileage.InsuranceMileage;
 import de.painer.mileage.insurance_mileage.InsuranceMileageRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CarEvaluateService {
 
     private final CarRepository carRepository;
@@ -25,11 +27,15 @@ public class CarEvaluateService {
         if (!carRepository.existsById(carId)) return null;
 
         List<InsuranceMileage> insuranceMileage = insuranceMileageRepository.findByCarId(carId);
-        InsuranceInterpolator interpolator = new InsuranceInterpolator(
-            insuranceMileage.stream()
+        var reports = insuranceMileage.stream()
             .map(m -> new InsuranceInterpolator.Report(m.getMileageDate(), m.getMileagePerYear(), m.getCurrentMileage()))
-            .toList()
-        );
+            .toList();
+        if (reports.isEmpty()) {
+            log.info("No insurance reports for car {}", carId);
+            return List.of();
+        }
+
+        InsuranceInterpolator interpolator = new InsuranceInterpolator(reports);
 
         List<CarMileage> mileages = carMileageRepository.findByCarId(carId);
         return mileages.stream().sorted(Comparator.comparing(m -> m.getMileageDate())).map(m -> {
