@@ -57,6 +57,54 @@ export const useCarsStore = defineStore('cars', () => {
         return car
     }
 
+    async function saveCar(car) {
+        if (car.id) {
+            const response = await axios.put(`${API_PREFIX}/${car.id}`, {
+                license: car.license,
+                model: car.model
+            })
+            const updatedCar = response.data
+
+            const listIdx = carsList.value.findIndex(c => c.id === updatedCar.id)
+            if (listIdx >= 0) {
+                carsList.value[listIdx].license = updatedCar.license
+                carsList.value[listIdx].model = updatedCar.model
+            }
+
+            if (updatedCar.id in carsCache.value) {
+                const cached = carsCache.value[updatedCar.id]
+                carsCache.value[updatedCar.id] = {
+                    ...updatedCar,
+                    mileages: cached.mileages,
+                    insurance: cached.insurance,
+                    evaluation: cached.evaluation
+                }
+            }
+
+            return selectCar(updatedCar.id)
+        } else {
+            const response = await axios.post(API_PREFIX, {
+                license: car.license,
+                model: car.model
+            })
+            const newCar = response.data
+
+            currentCarId.value = newCar.id
+            await refreshCars()
+            return currentCar.value
+        }
+    }
+
+    async function deleteCar(id) {
+        const response = await axios.delete(`${API_PREFIX}/${id}`)
+
+        if (id in carsCache.value) {
+            delete carsCache.value[id]
+        }
+
+        await refreshCars()
+    }
+
     refreshCars()
 
     return {
@@ -65,6 +113,8 @@ export const useCarsStore = defineStore('cars', () => {
         currentCar,
         carsCache,
         refreshCars,
-        selectCar
+        selectCar,
+        saveCar,
+        deleteCar
     }
 })
