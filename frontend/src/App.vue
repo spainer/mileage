@@ -1,5 +1,7 @@
 <script setup>
 import { RouterView } from 'vue-router'
+
+import ConfirmDialog from 'primevue/confirmdialog'
 import Topbar from './components/Topmenu.vue'
 </script>
 
@@ -12,5 +14,7 @@ import Topbar from './components/Topmenu.vue'
     <main class="flex-1">
       <RouterView/>
     </main>
+
+    <ConfirmDialog />
   </div>
 </template>

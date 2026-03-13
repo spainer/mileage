@@ -5,7 +5,6 @@ import { ref, watch } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 
 import Button from 'primevue/button'
-import ConfirmDialog from 'primevue/confirmdialog'
 import FloatLabel from 'primevue/floatlabel'
 import InputText from 'primevue/inputtext'
 
@@ -57,7 +56,5 @@ function deleteCar() {
             <Button label="Save" icon="pi pi-save" class="mr-1 sm:mr-4" @click="save" />
             <Button label="Delete" icon="pi pi-trash" severity="danger" class="mr-1 sm:mr-4" @click="deleteCar" />
         </div>
-
-        <ConfirmDialog></ConfirmDialog>
     </div>
 </template>
