@@ -109,7 +109,19 @@ export const useCarsStore = defineStore('cars', () => {
 
     async function saveMileage(mileage) {
         if (mileage.id) {
+            const response = await axios.put( `${API_PREFIX}/${currentCarId.value}/mileages/${mileage.id}`, dataToApi({
+                date: mileage.date,
+                value: mileage.value
+            }))
+            const updatedMilage = apiToData(response.data)
+            
+            const listIdx = currentCar.value.mileages.findIndex(m => m.id === updatedMilage.id)
+            if (listIdx >= 0) {
+                currentCar.value.mileages[listIdx] = updatedMilage
+            }
 
+            await refreshEvaluation()
+            return updatedMilage
         } else {
             const response = await axios.post(
                 `${API_PREFIX}/${currentCarId.value}/mileages`, 
@@ -128,6 +140,46 @@ export const useCarsStore = defineStore('cars', () => {
         const listIdx = currentCar.value.mileages.findIndex(m => m.id === id)
         if (listIdx >= 0) {
             currentCar.value.mileages.splice(listIdx, 1)
+        }
+
+        await refreshEvaluation()
+    }
+
+    async function saveInsuranceMileage(insurance) {
+        if (insurance.id) {
+            const response = await axios.put(`${API_PREFIX}/${currentCarId.value}/insurance-mileages/${insurance.id}`, dataToApi({
+                date: insurance.date,
+                mileagePerYear: insurance.mileagePerYear,
+                currentMileage: insurance.currentMileage
+            }))
+            const updatedInsurance = apiToData(response.data)
+            
+            const listIdx = currentCar.value.insurance.findIndex(i => i.id === updatedInsurance.id)
+            if (listIdx >= 0) {
+                currentCar.value.insurance[listIdx] = updatedInsurance
+            }
+
+            await refreshEvaluation()
+            return updatedInsurance
+        } else {
+            const response = await axios.post(`${API_PREFIX}/${currentCarId.value}/insurance-mileages`, dataToApi({
+                date: insurance.date,
+                mileagePerYear: insurance.mileagePerYear,
+                currentMileage: insurance.currentMileage
+            }))
+            const newInsurance = apiToData(response.data)
+            currentCar.value.insurance.push(newInsurance)
+            await refreshEvaluation()
+            return newInsurance
+        }
+    }
+
+    async function deleteInsuranceMileage(id) {
+        const response = await axios.delete(`${API_PREFIX}/${currentCarId.value}/insurance-mileages/${id}`)
+
+        const listIdx = currentCar.value.insurance.findIndex(i => i.id === id)
+        if (listIdx >= 0) {
+            currentCar.value.insurance.splice(listIdx, 1)
         }
 
         await refreshEvaluation()
@@ -164,6 +216,8 @@ export const useCarsStore = defineStore('cars', () => {
         saveCar,
         deleteCar,
         saveMileage,
-        deleteMileage
+        deleteMileage,
+        saveInsuranceMileage,
+        deleteInsuranceMileage
     }
 })
