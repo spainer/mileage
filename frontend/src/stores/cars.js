@@ -2,6 +2,8 @@ import { ref } from "vue"
 import { defineStore } from "pinia"
 import axios from "axios"
 
+import { dateToApi } from "@/utils/dateformat"
+
 const API_PREFIX = '/api/cars'
 
 export const useCarsStore = defineStore('cars', () => {
@@ -48,9 +50,9 @@ export const useCarsStore = defineStore('cars', () => {
         ])
 
         const car = responses[0].data
-        car.mileages = responses[1].data
-        car.insurance = responses[2].data
-        car.evaluation = responses[3].data
+        car.mileages = responses[1].data.map(apiToData)
+        car.insurance = responses[2].data.map(apiToData)
+        car.evaluation = responses[3].data.map(apiToData)
         carsCache.value[id] = car
         currentCar.value = car
 
@@ -105,6 +107,51 @@ export const useCarsStore = defineStore('cars', () => {
         await refreshCars()
     }
 
+    async function saveMileage(mileage) {
+        if (mileage.id) {
+
+        } else {
+            const response = await axios.post(
+                `${API_PREFIX}/${currentCarId.value}/mileages`, 
+                dataToApi(mileage)
+            )
+            const newMileage = apiToData(response.data)
+            currentCar.value.mileages.push(newMileage)
+            await refreshEvaluation()
+            return newMileage
+        }
+    }
+
+    async function deleteMileage(id) {
+        const response = await axios.delete(`${API_PREFIX}/${currentCarId.value}/mileages/${id}`)
+
+        const listIdx = currentCar.value.mileages.findIndex(m => m.id === id)
+        if (listIdx >= 0) {
+            currentCar.value.mileages.splice(listIdx, 1)
+        }
+
+        await refreshEvaluation()
+    }
+
+    async function refreshEvaluation() {
+        const response = await axios.get(`${API_PREFIX}/${currentCarId.value}/evaluate`)
+        currentCar.value.evaluation = response.data.map(apiToData)
+    }
+
+    function apiToData(api) {
+        return {
+            ...api,
+            date: new Date(api.date)
+        }
+    }
+
+    function dataToApi(data) {
+        return {
+            ...data,
+            date: dateToApi(data.date)
+        }
+    }
+
     refreshCars()
 
     return {
@@ -115,6 +162,8 @@ export const useCarsStore = defineStore('cars', () => {
         refreshCars,
         selectCar,
         saveCar,
-        deleteCar
+        deleteCar,
+        saveMileage,
+        deleteMileage
     }
 })
