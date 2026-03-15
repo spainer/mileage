@@ -1,5 +1,7 @@
 import './assets/main.css'
 
+import 'chartjs-adapter-date-fns'
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 

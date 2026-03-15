@@ -1,3 +1,5 @@
+import { de } from 'date-fns/locale'
+
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
     day: "2-digit",
     month: "2-digit",
@@ -17,3 +19,5 @@ export function dateToApi(date) {
 }
 
 export const DATEPICKER_FORMAT = "dd.mm.yy"
+
+export const DATE_FNS_LOCALE = de
