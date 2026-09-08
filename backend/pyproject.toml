@@ -1,0 +1,22 @@
+[project]
+name = "mileage"
+version = "0.1.0"
+description = ""
+authors = [{ name = "Sven Painer", email = "spainer@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "litestar>=2.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "alembic>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.13.5"
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
