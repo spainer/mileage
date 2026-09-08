@@ -12,10 +12,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "httpx>=0.25.0",
-    "pydantic>=2.13.5"
+     "pytest>=8.0.0",
+     "httpx>=0.25.0",
+     "pydantic>=2.13.5",
+     "pytest-asyncio>=0.23.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
 
 [build-system]
 requires = ["setuptools"]

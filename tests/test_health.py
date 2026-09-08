@@ -1,11 +1,10 @@
 import pytest
-from httpx import AsyncClient
-from src.app import app
+from litestar.testing import TestClient
 
 
-@pytest.mark.asyncio
-async def test_health_check() -> None:
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get("/api/health")
+def test_health_check() -> None:
+    from src.app import app
+    with TestClient(app) as client:
+        response = client.get("/api/health")
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
