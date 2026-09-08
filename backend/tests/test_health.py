@@ -1,9 +1,10 @@
 import pytest
 from litestar.testing import TestClient
 
+from src.app import app
+
 
 def test_health_check() -> None:
-    from src.app import app
     with TestClient(app) as client:
         response = client.get("/api/health")
         assert response.status_code == 200

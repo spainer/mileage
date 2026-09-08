@@ -1,10 +1,10 @@
 from litestar import Litestar, get
 
 
-@get("/health", sync_to_thread=False)
+@get("/api/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
 # Application instance
-app = Litestar(route_handlers=[health_check], path="/api")
+app = Litestar(route_handlers=[health_check])
