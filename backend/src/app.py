@@ -1,4 +1,10 @@
-from litestar import Litestar
+from litestar import Litestar, get
 
-# Placeholder for the application instance
-app = Litestar()
+
+@get("/api/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+# Application instance
+app = Litestar(route_handlers=[health_check])
