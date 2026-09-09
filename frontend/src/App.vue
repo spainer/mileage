@@ -2,11 +2,9 @@
 </script>
 
 <template>
-  <div id="app">
-    <UContainer>
-      <RouterView />
-    </UContainer>
-  </div>
+   <UApp>
+     <RouterView />
+   </UApp>
 </template>
 
 <style>
