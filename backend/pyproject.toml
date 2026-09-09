@@ -5,7 +5,7 @@ description = ""
 authors = [{ name = "Sven Painer", email = "spainer@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = [
-    "litestar>=2.0.0",
+    "litestar[standard]>=2.0.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "alembic>=1.0.0",
 ]
