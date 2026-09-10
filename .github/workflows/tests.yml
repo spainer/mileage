@@ -1,0 +1,134 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
+    steps:
+       - uses: actions/checkout@v4
+       - name: Set up Python ${{ matrix.python-version }}
+         uses: actions/setup-python@v5
+         with:
+           python-version: ${{ matrix.python-version }}
+       - name: Install uv
+         uses: astral-sh/setup-uv@v3
+         with:
+           version: "0.4"
+       - name: Setup environment (uv --all-extras)
+         working-directory: backend
+         run: uv sync --all-extras
+       - name: Run pytest (SQLite)
+         working-directory: backend
+         run: uv run pytest --tb=short -v
+       - name: Upload test reports
+         if: always()
+         uses: actions/upload-artifact@v4
+         with:
+           name: backend-pytest-reports
+           path: |
+             backend/.pytest_cache/
+
+  frontend-unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24]
+    steps:
+       - uses: actions/checkout@v4
+       - name: Set up Node.js ${{ matrix.node-version }}
+         uses: actions/setup-node@v4
+         with:
+           node-version: ${{ matrix.node-version }}
+       - name: Install frontend dependencies
+         working-directory: frontend
+         run: npm ci
+       - name: Run vitest unit tests
+         working-directory: frontend
+         run: npx vitest run --reporter=verbose
+
+  frontend-e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node-version: [24]
+    steps:
+       - uses: actions/checkout@v4
+       - name: Set up Python 3.14
+         uses: actions/setup-python@v5
+         with:
+           python-version: "3.14"
+       - name: Install uv
+         uses: astral-sh/setup-uv@v3
+         with:
+           version: "0.4"
+       - name: Setup environment (uv --all-extras)
+         working-directory: backend
+         run: uv sync --all-extras
+       - name: Set up Node.js ${{ matrix.node-version }}
+         uses: actions/setup-node@v4
+         with:
+           node-version: ${{ matrix.node-version }}
+       - name: Install frontend dependencies
+         working-directory: frontend
+         run: npm ci
+       - name: Install Playwright browsers
+         working-directory: frontend
+         run: npx playwright install --with-deps chromium
+
+       # Start backend server for E2E
+       - name: Start Litestar backend on port 8000
+         run: |
+           cd "$GITHUB_WORKSPACE/backend"
+           nohup uv run uvicorn src.app:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &
+
+       - name: Wait for backend health endpoint
+         run: |
+           echo "Waiting for backend to be ready ..."
+           for i in $(seq 1 30); do
+             if curl -sf http://localhost:8000/api/health > /dev/null; then
+               echo "Backend is up!"
+               break
+             fi
+             sleep 1
+           done
+
+       # Start frontend dev server for E2E
+       - name: Start Vite frontend on port 5173
+         run: |
+           cd "$GITHUB_WORKSPACE/frontend"
+           nohup npx vite --host 0.0.0.0 > /tmp/vite.log 2>&1 &
+
+       - name: Wait for frontend dev server
+         run: |
+           echo "Waiting for frontend to be ready ..."
+           for i in $(seq 1 30); do
+             if curl -sf http://localhost:5173 > /dev/null; then
+               echo "Frontend is up!"
+               break
+             fi
+             sleep 1
+           done
+
+       # Run E2E tests against both live servers
+       - name: Run Playwright E2E tests
+         working-directory: frontend
+         run: npx playwright test --reporter=html
+
+       - name: Upload Playwright reports on failure
+         if: always()
+         uses: actions/upload-artifact@v4
+         with:
+           name: playwright-report
+           path: |
+             frontend/playwright-report/
+             frontend/test-results/
+           retention-days: 30
