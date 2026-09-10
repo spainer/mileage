@@ -344,13 +344,13 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "litestar", extra = ["standard"] },
+    { name = "pydantic" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
 [package.optional-dependencies]
 dev = [
     { name = "httpx" },
-    { name = "pydantic" },
     { name = "pytest" },
 ]
 
@@ -359,7 +359,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.0.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.25.0" },
     { name = "litestar", extras = ["standard"], specifier = ">=2.0.0" },
-    { name = "pydantic", marker = "extra == 'dev'", specifier = ">=2.13.5" },
+    { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.0" },
 ]

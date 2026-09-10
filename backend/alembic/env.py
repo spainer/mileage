@@ -1,10 +1,11 @@
 import sys
 from logging.config import fileConfig
+from pathlib import Path
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 # Add the src directory to Python path so we can import our models
-sys.path.insert(0, '/workspace/mileage/backend/src')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 # this is the Alembic Config object
 config = context.config
@@ -13,10 +14,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Add your model's MetaData object here for 'autogenerate' support
-from src.settings import settings
 # Import all models here so they are registered with the metadata
-from litestar.stores.memory import MemoryStore
+from src.settings import settings
 
 # Get the database URL from settings
 config.set_main_option('sqlalchemy.url', settings.database_url)
