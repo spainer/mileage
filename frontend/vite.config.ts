@@ -8,14 +8,16 @@ export default defineConfig({
   resolve: {
     alias: {
        '@': fileURLToPath(new URL('./src', import.meta.url)),
-      },
     },
+  },
   server: {
+    allowedHosts: true,
+    host: '0.0.0.0',
     proxy: {
-       '/api': {
+      '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-       },
       },
     },
+  },
 })
