@@ -22,7 +22,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           version: "0.4"
-- name: Install all dependencies (prod + extras)
+        - name: Install all dependencies (prod + extras)
          working-directory: backend
          run: uv sync --all-extras 2>&1 | tail -n 3
       - name: Run pytest (SQLite)
