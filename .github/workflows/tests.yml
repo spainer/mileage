@@ -57,8 +57,22 @@ jobs:
   frontend-e2e-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        node-version: [20]
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4"
+      - name: Setup environment (uv --all-extras)
+        working-directory: backend
+        run: uv sync --all-extras
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
@@ -71,9 +85,6 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Start backend server for E2E
-      - name: Set up backend dependencies
-        working-directory: backend
-        run: uv sync --all-extras
       - name: Start Litestar backend on port 8000
         run: |
           cd "$GITHUB_WORKSPACE/backend"
