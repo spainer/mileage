@@ -120,4 +120,4 @@ jobs:
           path: |
             frontend/playwright-report/
             frontend/test-results/
-        retention-days: 30
+          retention-days: 30
