@@ -13,14 +13,11 @@ if config.config_file_name is not None:
 
 from src.settings import settings
 from src import models
-
-
-def _sync_url(url: str) -> str:
-    return url.replace("+aiosqlite", "") if "+aiosqlite" in url else url
+from src.database import sync_url
 
 _configured_url = config.get_main_option("sqlalchemy.url")
 if not _configured_url or "driver://" in _configured_url:
-    config.set_main_option("sqlalchemy.url", _sync_url(settings.database_url))
+    config.set_main_option("sqlalchemy.url", sync_url(settings.database_url))
 
 target_metadata = models.Base.metadata
 

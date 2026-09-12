@@ -58,17 +58,16 @@ async def provide_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-def _sync_url(database_url: str | None = None) -> str:
-    url = database_url or _url
-    if SYNC_SUFFIX in url:
-        return url.replace(SYNC_SUFFIX, "")
-    return url
+def sync_url(database_url: str) -> str:
+    if SYNC_SUFFIX in database_url:
+        return database_url.replace(SYNC_SUFFIX, "")
+    return database_url
 
 
 def _build_config(database_url: str) -> Config:
     config = Config(file_=None)
     config.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
-    config.set_main_option("sqlalchemy.url", _sync_url(database_url))
+    config.set_main_option("sqlalchemy.url", sync_url(database_url))
     return config
 
 

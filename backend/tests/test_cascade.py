@@ -19,8 +19,8 @@ def test_deleting_car_cascades_at_runtime(db_url: str) -> None:
             car_id = car.id
 
             day = datetime.date(2026, 1, 1)
-            s.add(models.MileageRecord(car_id=car_id, date=day, value=100))
-            s.add(models.InsuranceReport(car_id=car_id, date=day, value=100,
+            s.add(models.MileageRecord(car_id=car_id, date=day, odometer_reading=100))
+            s.add(models.InsuranceReport(car_id=car_id, date=day, odometer_reading=100,
                                         mileage_per_year=15000))
             await s.commit()
 

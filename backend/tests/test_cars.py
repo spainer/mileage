@@ -192,3 +192,44 @@ def test_update_car_rejects_duplicate_license(client):
     response = client.patch(f"/api/cars/{second['id']}", json={"license": "aaa1"})
 
     assert response.status_code == 409
+
+
+def test_update_car_rejects_license_with_invalid_characters(client):
+    created = client.post(
+        "/api/cars",
+        json={"manufacturer": "VW", "model": "Golf", "license": "GOLF1"},
+    ).json()
+
+    response = client.patch(f"/api/cars/{created['id']}", json={"license": "GOLF!"})
+
+    assert response.status_code == 400
+
+
+def test_update_car_rejects_license_longer_than_10_characters(client):
+    created = client.post(
+        "/api/cars",
+        json={"manufacturer": "VW", "model": "Golf", "license": "GOLF1"},
+    ).json()
+
+    response = client.patch(f"/api/cars/{created['id']}", json={"license": "A" * 11})
+
+    assert response.status_code == 400
+
+
+def test_create_car_accepts_10_character_license(client):
+    response = client.post(
+        "/api/cars",
+        json={"manufacturer": "VW", "model": "Golf", "license": "A" * 10},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["license"] == "A" * 10
+
+
+def test_create_car_rejects_empty_license(client):
+    response = client.post(
+        "/api/cars",
+        json={"manufacturer": "VW", "model": "Golf", "license": ""},
+    )
+
+    assert response.status_code == 400

@@ -13,10 +13,23 @@ class CarRepository:
         self._session = session
 
     async def get(self, car_id: int) -> Car:
+        return Car.from_orm(await self._get_or_404(car_id))
+
+    async def _get_or_404(self, car_id: int) -> models.Car:
         car = await self._session.get(models.Car, car_id)
         if car is None:
             raise NotFoundException(f"Car {car_id} not found")
-        return Car.from_orm(car)
+        return car
+
+    async def _commit_or_conflict(self) -> None:
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail="A car with this license already exists",
+            )
 
     async def list(self) -> list[Car]:
         result = await self._session.execute(
@@ -31,36 +44,18 @@ class CarRepository:
             license=data.license,
         )
         self._session.add(car)
-        try:
-            await self._session.commit()
-        except IntegrityError:
-            await self._session.rollback()
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail="A car with this license already exists",
-            )
+        await self._commit_or_conflict()
         return Car.from_orm(car)
 
     async def update(self, car_id: int, data: CarUpdate) -> Car:
-        car = await self._session.get(models.Car, car_id)
-        if car is None:
-            raise NotFoundException(f"Car {car_id} not found")
+        car = await self._get_or_404(car_id)
         for field, value in data.model_dump(exclude_unset=True).items():
             if value is not None:
                 setattr(car, field, value)
-        try:
-            await self._session.commit()
-        except IntegrityError:
-            await self._session.rollback()
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail="A car with this license already exists",
-            )
+        await self._commit_or_conflict()
         return Car.from_orm(car)
 
     async def delete(self, car_id: int) -> None:
-        car = await self._session.get(models.Car, car_id)
-        if car is None:
-            raise NotFoundException(f"Car {car_id} not found")
+        car = await self._get_or_404(car_id)
         await self._session.delete(car)
         await self._session.commit()

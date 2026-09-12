@@ -1,6 +1,7 @@
 import re
+from typing import Annotated
 
-from pydantic import BaseModel, field_validator
+from pydantic import BeforeValidator, BaseModel
 
 from src import models
 
@@ -14,28 +15,25 @@ def normalize_license(value: str) -> str:
     return normalized
 
 
+def _normalize_license_or_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return normalize_license(value)
+
+
+License = Annotated[str, BeforeValidator(normalize_license)]
+
+
 class CarCreate(BaseModel):
     manufacturer: str
     model: str
-    license: str
-
-    @field_validator("license")
-    @classmethod
-    def _normalize_license(cls, value: str) -> str:
-        return normalize_license(value)
+    license: License
 
 
 class CarUpdate(BaseModel):
     manufacturer: str | None = None
     model: str | None = None
-    license: str | None = None
-
-    @field_validator("license")
-    @classmethod
-    def _normalize_license(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return normalize_license(value)
+    license: Annotated[str | None, BeforeValidator(_normalize_license_or_none)] = None
 
 
 class Car(BaseModel):

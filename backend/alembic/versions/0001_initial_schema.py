@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("car_id", sa.Integer(), nullable=False),
         sa.Column("date", sa.Date(), nullable=False),
-        sa.Column("value", sa.Integer(), nullable=False),
+        sa.Column("odometer_reading", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(["car_id"], ["cars.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("car_id", sa.Integer(), nullable=False),
         sa.Column("date", sa.Date(), nullable=False),
-        sa.Column("value", sa.Integer(), nullable=False),
+        sa.Column("odometer_reading", sa.Integer(), nullable=False),
         sa.Column("mileage_per_year", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(["car_id"], ["cars.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

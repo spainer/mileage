@@ -42,7 +42,7 @@ class MileageRecord(Base):
         nullable=False,
     )
     date = Column(Date, nullable=False)
-    value = Column(Integer, nullable=False)
+    odometer_reading = Column(Integer, nullable=False)
 
     car = relationship("Car", back_populates="mileage_records")
 
@@ -57,7 +57,7 @@ class InsuranceReport(Base):
         nullable=False,
     )
     date = Column(Date, nullable=False)
-    value = Column(Integer, nullable=False)
+    odometer_reading = Column(Integer, nullable=False)
     mileage_per_year = Column(Integer, nullable=False)
 
     car = relationship("Car", back_populates="insurance_reports")
