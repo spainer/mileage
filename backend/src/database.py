@@ -53,6 +53,11 @@ def get_session() -> "async_sessionmaker[AsyncSession]":
     return _session
 
 
+async def provide_session() -> AsyncIterator[AsyncSession]:
+    async with get_session()() as session:
+        yield session
+
+
 def _sync_url(database_url: str | None = None) -> str:
     url = database_url or _url
     if SYNC_SUFFIX in url:
