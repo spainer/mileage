@@ -4,30 +4,31 @@ from pathlib import Path
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Add the src directory to Python path so we can import our models
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-# this is the Alembic Config object
 config = context.config
 
-# Interpret the config file for Python logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import all models here so they are registered with the metadata
 from src.settings import settings
+from src import models
 
-# Get the database URL from settings
-config.set_main_option('sqlalchemy.url', settings.database_url)
 
-# Set up the target metadata
-target_metadata = None
+def _sync_url(url: str) -> str:
+    return url.replace("+aiosqlite", "") if "+aiosqlite" in url else url
+
+_configured_url = config.get_main_option("sqlalchemy.url")
+if not _configured_url or "driver://" in _configured_url:
+    config.set_main_option("sqlalchemy.url", _sync_url(settings.database_url))
+
+target_metadata = models.Base.metadata
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -48,7 +49,7 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata
+            target_metadata=target_metadata,
         )
 
         with context.begin_transaction():
