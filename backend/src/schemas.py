@@ -81,3 +81,36 @@ class MileageRecord(BaseModel):
             date=record.date,
             odometer_reading=record.odometer_reading,
         )
+
+
+AnnualMileageCap = Annotated[int, Field(ge=0)]
+
+
+class InsuranceReportCreate(BaseModel):
+    date: date
+    odometer_reading: OdometerReading
+    mileage_per_year: AnnualMileageCap
+
+
+class InsuranceReportUpdate(BaseModel):
+    date: NullableDate = None
+    odometer_reading: OdometerReading | None = None
+    mileage_per_year: AnnualMileageCap | None = None
+
+
+class InsuranceReport(BaseModel):
+    id: int
+    car_id: int
+    date: date
+    odometer_reading: OdometerReading
+    mileage_per_year: AnnualMileageCap
+
+    @classmethod
+    def from_orm(cls, report: models.InsuranceReport) -> InsuranceReport:
+        return cls(
+            id=report.id,
+            car_id=report.car_id,
+            date=report.date,
+            odometer_reading=report.odometer_reading,
+            mileage_per_year=report.mileage_per_year,
+        )

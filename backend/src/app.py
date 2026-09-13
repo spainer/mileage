@@ -2,6 +2,7 @@ from litestar import Litestar, get
 
 from src.database import lifespan
 from src.routes.cars import car_router
+from src.routes.insurance_reports import insurance_reports_router
 from src.routes.mileage_records import mileage_records_router
 
 
@@ -12,7 +13,12 @@ def health_check() -> dict[str, str]:
 
 # Application instance
 app = Litestar(
-    route_handlers=[health_check, car_router, mileage_records_router],
+    route_handlers=[
+        health_check,
+        car_router,
+        mileage_records_router,
+        insurance_reports_router,
+    ],
     path="/api",
     lifespan=[lifespan],
 )
