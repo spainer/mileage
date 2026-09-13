@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
+import './assets/main.css'
 
 const router = createRouter({
   routes: [
@@ -9,6 +10,11 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: () => import('./views/HomeView.vue'),
+    },
+    {
+      path: '/prototype',
+      name: 'prototype',
+      component: () => import('./prototype/PrototypeView.vue'),
     },
    ],
   history: createWebHistory(),
