@@ -6,6 +6,7 @@ import { onUnmounted, watch } from 'vue'
 import { carLabel } from '../format'
 import type { Car } from '../types'
 import CarDetails from './CarDetails.vue'
+import LicensePlate from './LicensePlate.vue'
 
 const props = defineProps<{ car: Car | null }>()
 const emit = defineEmits<{ close: [] }>()
@@ -62,11 +63,13 @@ onUnmounted(() => swipeCleanup?.())
 <template>
   <USlideover
     :open="car !== null"
-    :title="car?.license"
     :description="car ? carLabel(car) : ''"
     class="w-full max-w-lg"
     @update:open="onOpenChange"
   >
+    <template v-if="car" #title>
+      <LicensePlate :license="car.license" />
+    </template>
     <template #body>
       <CarDetails v-if="car" :car="car" />
     </template>

@@ -1,13 +1,12 @@
 <script setup lang="ts">
 // PROTOTYPE ONLY — throwaway shell: design-variant switcher
-// (?variant=wall|ledger|cockpit) x style-draft switcher (?style=clean|dark|midnight),
+// (?variant=wall|cockpit) x style-draft switcher (?style=dark|midnight),
 // prototype banner, and floating bottom bar. Data resets on reload.
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { resetDemoData } from './store'
 import { styleDrafts, type StyleId } from './themes'
 import WallView from './WallView.vue'
-import LedgerView from './LedgerView.vue'
 import CockpitView from './CockpitView.vue'
 
 const route = useRoute()
@@ -17,7 +16,6 @@ const isDev = import.meta.env.DEV
 
 const variants = [
   { id: 'wall', label: 'Wall', component: WallView },
-  { id: 'ledger', label: 'Ledger', component: LedgerView },
   { id: 'cockpit', label: 'Cockpit', component: CockpitView },
 ] as const
 type VariantId = (typeof variants)[number]['id']
@@ -30,7 +28,7 @@ const activeVariant = computed(() => variants.find((item) => item.id === variant
 
 const style = computed<StyleId>(() => {
   const query = route.query.style
-  return styleDrafts.some((item) => item.id === query) ? (query as StyleId) : 'clean'
+  return styleDrafts.some((item) => item.id === query) ? (query as StyleId) : 'dark'
 })
 
 const theme = computed(() => styleDrafts.find((item) => item.id === style.value)!)

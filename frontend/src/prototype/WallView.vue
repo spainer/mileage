@@ -16,6 +16,7 @@ import type { Car } from './types'
 import type { StyleDraft } from './themes'
 import CarSlideover from './components/CarSlideover.vue'
 import CarFormModal from './components/CarFormModal.vue'
+import LicensePlate from './components/LicensePlate.vue'
 
 const props = defineProps<{
   theme: StyleDraft
@@ -64,12 +65,7 @@ function openEditCar(car: Car) {
         @keydown.space.prevent="openCar(car)"
       >
         <div class="flex items-start justify-between gap-2">
-          <span
-            class="rounded-md px-2 py-1 font-mono text-sm"
-            :class="props.theme.licenseBadge"
-          >
-            {{ car.license }}
-          </span>
+          <LicensePlate :license="car.license" size="sm" />
           <UButton
             size="xs"
             variant="ghost"

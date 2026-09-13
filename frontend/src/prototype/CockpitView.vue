@@ -16,11 +16,13 @@ import type { Car } from './types'
 import type { StyleDraft } from './themes'
 import CarSlideover from './components/CarSlideover.vue'
 import CarFormModal from './components/CarFormModal.vue'
+import LicensePlate from './components/LicensePlate.vue'
 
 const props = defineProps<{
   theme: StyleDraft
 }>()
 
+const featuredCarId = ref<number | null>(null)
 const selectedCarId = ref<number | null>(null)
 const selectedCar = computed<Car | undefined>(() => carById(selectedCarId.value))
 
@@ -28,13 +30,16 @@ const carFormOpen = ref(false)
 const editingCar = ref<Car | null>(null)
 
 const featuredCar = computed<Car | undefined>(() =>
-  selectedCar.value ?? cars.value[0],
+  carById(featuredCarId.value) ?? cars.value[0],
 )
 const otherCars = computed<Car[]>(() =>
   cars.value.filter((car) => car.id !== featuredCar.value?.id),
 )
 
+// Selecting a car re-features it AND opens its details; closing the
+// slideover keeps the selection featured.
 function openCar(car: Car) {
+  featuredCarId.value = car.id
   selectedCarId.value = car.id
 }
 
@@ -70,23 +75,11 @@ function openEditCar(car: Car) {
     >
       <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p
-            class="text-sm uppercase tracking-wide text-muted"
-            :class="featuredCar.id === selectedCarId ? 'text-primary' : ''"
-          >
-            {{ featuredCar.id === selectedCarId ? 'Selected' : 'Featured' }}
-          </p>
+          <p class="text-sm uppercase tracking-wide text-muted">Featured</p>
           <h2 class="mt-1 text-3xl font-semibold tracking-tight">
             {{ carLabel(featuredCar) }}
           </h2>
-          <span
-            class="mt-3 inline-flex items-stretch overflow-hidden rounded-lg border border-zinc-300 bg-white font-mono text-xl text-zinc-900"
-          >
-            <span class="flex items-center bg-blue-700 px-2 text-sm font-bold text-white">
-              D
-            </span>
-            <span class="px-3 py-1.5">{{ featuredCar.license }}</span>
-          </span>
+          <LicensePlate :license="featuredCar.license" class="mt-3" />
         </div>
 
         <div class="flex flex-wrap gap-3">

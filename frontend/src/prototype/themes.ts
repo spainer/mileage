@@ -1,5 +1,5 @@
 // PROTOTYPE ONLY — throwaway style drafts for the Garage layout.
-export type StyleId = 'clean' | 'dark' | 'midnight'
+export type StyleId = 'dark' | 'midnight'
 
 export interface StyleDraft {
   id: StyleId
@@ -15,16 +15,6 @@ export interface StyleDraft {
 }
 
 export const styleDrafts: StyleDraft[] = [
-  {
-    id: 'clean',
-    label: 'Clean',
-    dark: false,
-    vars: { '--ui-bg': '#ffffff', '--ui-bg-muted': '#f8fafc' },
-    card: 'border-zinc-200 bg-white hover:border-blue-300',
-    statTile: 'bg-blue-50/70',
-    licenseBadge: 'bg-zinc-100',
-    addTile: 'border-zinc-300 text-zinc-500 hover:border-blue-400 hover:text-blue-600',
-  },
   {
     id: 'dark',
     label: 'Dark',
