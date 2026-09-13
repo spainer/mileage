@@ -10,11 +10,10 @@ def db_url(tmp_path) -> str:
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(db_url):
     import src.database as database
 
-    url = "sqlite+aiosqlite:///" + str(tmp_path / "client.db")
-    database.configure(url)
+    database.configure(db_url)
 
     with TestClient(app) as c:
         yield c

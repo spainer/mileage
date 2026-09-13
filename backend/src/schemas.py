@@ -1,7 +1,8 @@
 import re
+from datetime import date
 from typing import Annotated
 
-from pydantic import BeforeValidator, BaseModel
+from pydantic import BeforeValidator, BaseModel, Field
 
 from src import models
 
@@ -49,4 +50,34 @@ class Car(BaseModel):
             manufacturer=car.manufacturer,
             model=car.model,
             license=car.license,
+        )
+
+
+OdometerReading = Annotated[int, Field(ge=0)]
+NullableDate = date | None
+
+
+class MileageRecordCreate(BaseModel):
+    date: date
+    odometer_reading: OdometerReading
+
+
+class MileageRecordUpdate(BaseModel):
+    date: NullableDate = None
+    odometer_reading: OdometerReading | None = None
+
+
+class MileageRecord(BaseModel):
+    id: int
+    car_id: int
+    date: date
+    odometer_reading: OdometerReading
+
+    @classmethod
+    def from_orm(cls, record: models.MileageRecord) -> MileageRecord:
+        return cls(
+            id=record.id,
+            car_id=record.car_id,
+            date=record.date,
+            odometer_reading=record.odometer_reading,
         )

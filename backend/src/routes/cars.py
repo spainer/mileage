@@ -1,15 +1,11 @@
 from litestar import Router, delete, get, patch, post
-from litestar.di import NamedDependency, Provide
-from litestar.params import FromPath
+from litestar.di import Provide
 from litestar.status_codes import HTTP_201_CREATED, HTTP_204_NO_CONTENT
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import provide_session
 from src.repositories import CarRepository
+from src.routes.dependencies import CarId, Session
 from src.schemas import Car, CarCreate, CarUpdate
-
-Session = NamedDependency[AsyncSession]
-CarId = FromPath[int]
 
 
 @post("/", response_model=Car, status_code=HTTP_201_CREATED)
