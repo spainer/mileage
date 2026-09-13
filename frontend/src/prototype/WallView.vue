@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// PROTOTYPE ONLY — throwaway Garage layout: a wall of car cards with key
+// PROTOTYPE ONLY — design variant "Wall": a wall of car cards with key
 // numbers; the detail opens transiently in a slideover. Surface colors come
 // from the active style draft (see themes.ts).
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { carLabel, formatKm } from './format'
 import {
   carById,
@@ -14,7 +14,7 @@ import {
 } from './store'
 import type { Car } from './types'
 import type { StyleDraft } from './themes'
-import CarDetails from './components/CarDetails.vue'
+import CarSlideover from './components/CarSlideover.vue'
 import CarFormModal from './components/CarFormModal.vue'
 
 const props = defineProps<{
@@ -40,52 +40,6 @@ function openEditCar(car: Car) {
   editingCar.value = car
   carFormOpen.value = true
 }
-
-// iOS-style: right swipe anchored to the left screen edge closes the slideover.
-// Nuxt UI has no built-in for this, so the gesture lives here, outside the library.
-const SWIPE_EDGE = 40
-const SWIPE_DISTANCE = 60
-let swipeCleanup: (() => void) | null = null
-
-function installSwipeClose() {
-  let startX = 0
-  let startY = 0
-  let active = false
-
-  const onTouchStart = (event: TouchEvent) => {
-    const touch = event.touches[0]
-    active = touch.clientX <= SWIPE_EDGE
-    startX = touch.clientX
-    startY = touch.clientY
-  }
-
-  const onTouchEnd = (event: TouchEvent) => {
-    if (!active) return
-    active = false
-    const touch = event.changedTouches[0]
-    const dx = touch.clientX - startX
-    const dy = touch.clientY - startY
-    if (dx >= SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      selectedCarId.value = null
-    }
-  }
-
-  window.addEventListener('touchstart', onTouchStart, { passive: true })
-  window.addEventListener('touchend', onTouchEnd, { passive: true })
-  return () => {
-    window.removeEventListener('touchstart', onTouchStart)
-    window.removeEventListener('touchend', onTouchEnd)
-  }
-}
-
-watch(
-  () => selectedCar.value !== undefined,
-  (open) => {
-    swipeCleanup?.()
-    swipeCleanup = open ? installSwipeClose() : null
-  },
-)
-onUnmounted(() => swipeCleanup?.())
 </script>
 
 <template>
@@ -165,17 +119,7 @@ onUnmounted(() => swipeCleanup?.())
       </button>
     </div>
 
-    <USlideover
-      :open="selectedCar !== undefined"
-      :title="selectedCar?.license"
-      :description="selectedCar ? carLabel(selectedCar) : ''"
-      class="w-full max-w-lg"
-      @update:open="selectedCarId = $event ? selectedCarId : null"
-    >
-      <template #body>
-        <CarDetails v-if="selectedCar" :car="selectedCar" />
-      </template>
-    </USlideover>
+    <CarSlideover :car="selectedCar ?? null" @close="selectedCarId = null" />
 
     <CarFormModal
       :open="carFormOpen"
