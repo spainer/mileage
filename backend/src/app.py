@@ -1,4 +1,6 @@
 from litestar import Litestar, get
+from litestar.openapi import OpenAPIConfig
+from litestar.openapi.plugins import SwaggerRenderPlugin
 
 from src.database import lifespan
 from src.routes.cars import car_router
@@ -21,4 +23,9 @@ app = Litestar(
     ],
     path="/api",
     lifespan=[lifespan],
+    openapi_config=OpenAPIConfig(
+        title="Mileage API",
+        version="1",
+        render_plugins=[SwaggerRenderPlugin()],
+    ),
 )
