@@ -32,7 +32,7 @@ def test_deleting_car_cascades_to_children(db_url: str) -> None:
 
     session = sessionmaker(bind=engine, expire_on_commit=True)()
 
-    car = models.Car(manufacturer="VW", model="Golf", license="ABCD")
+    car = models.Car(manufacturer="VW", model="Golf", license="M-AB1234")
     session.add(car)
     session.commit()
 

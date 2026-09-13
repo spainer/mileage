@@ -1,4 +1,4 @@
-def create_car(client, license: str = "GOLF1") -> dict:
+def create_car(client, license: str = "M-AB1234") -> dict:
     return client.post(
         "/api/cars",
         json={"manufacturer": "VW", "model": "Golf", "license": license},
@@ -122,7 +122,7 @@ def test_list_insurance_reports(client):
         client, car["id"], day="2026-03-01", odometer_reading=1500,
         mileage_per_year=20000,
     ).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
     third = create_report(client, other["id"]).json()
 
     response = client.get(f"/api/cars/{car['id']}/insurance-reports")
@@ -172,7 +172,7 @@ def test_get_missing_insurance_report_returns_404(client):
 def test_get_insurance_report_of_other_car_returns_404(client):
     car = create_car(client)
     report = create_report(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.get(
         f"/api/cars/{other['id']}/insurance-reports/{report['id']}"
@@ -282,7 +282,7 @@ def test_update_missing_insurance_report_returns_404(client):
 def test_update_insurance_report_of_other_car_returns_404(client):
     car = create_car(client)
     report = create_report(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.patch(
         f"/api/cars/{other['id']}/insurance-reports/{report['id']}",
@@ -330,7 +330,7 @@ def test_delete_missing_insurance_report_returns_404(client):
 def test_delete_insurance_report_of_other_car_returns_404(client):
     car = create_car(client)
     report = create_report(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.delete(
         f"/api/cars/{other['id']}/insurance-reports/{report['id']}"

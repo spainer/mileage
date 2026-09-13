@@ -1,4 +1,4 @@
-def create_car(client, license: str = "GOLF1") -> dict:
+def create_car(client, license: str = "M-AB1234") -> dict:
     return client.post(
         "/api/cars",
         json={"manufacturer": "VW", "model": "Golf", "license": license},
@@ -74,7 +74,7 @@ def test_list_mileage_records(client):
     second = create_record(
         client, car["id"], day="2026-03-01", odometer_reading=1500
     ).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
     third = create_record(
         client, other["id"], day="2026-02-01", odometer_reading=500
     ).json()
@@ -124,7 +124,7 @@ def test_get_missing_mileage_record_returns_404(client):
 def test_get_mileage_record_of_other_car_returns_404(client):
     car = create_car(client)
     record = create_record(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.get(f"/api/cars/{other['id']}/mileage-records/{record['id']}")
 
@@ -210,7 +210,7 @@ def test_update_missing_mileage_record_returns_404(client):
 def test_update_mileage_record_of_other_car_returns_404(client):
     car = create_car(client)
     record = create_record(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.patch(
         f"/api/cars/{other['id']}/mileage-records/{record['id']}",
@@ -244,7 +244,7 @@ def test_delete_missing_mileage_record_returns_404(client):
 def test_delete_mileage_record_of_other_car_returns_404(client):
     car = create_car(client)
     record = create_record(client, car["id"]).json()
-    other = create_car(client, license="BBB2")
+    other = create_car(client, license="B-KW4567")
 
     response = client.delete(
         f"/api/cars/{other['id']}/mileage-records/{record['id']}"

@@ -16,7 +16,7 @@ _Avoid_: make, brand
 The specific model of a car (e.g. Golf, Corolla), distinguished by manufacturer.
 
 **License**:
-The license plate of a car: up to 10 characters, uppercase letters and digits. Uniquely identifies a car among other cars.
+The license plate of a car, in German format: 1-3 uppercase letters, a dash, 1-2 uppercase letters, 1-4 digits, and optionally one uppercase letter after the digits (up to 6 characters after the dash). Uniquely identifies a car among other cars.
 _Avoid_: plate, registration
 
 **Mileage Record**:

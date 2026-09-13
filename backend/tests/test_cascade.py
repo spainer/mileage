@@ -13,7 +13,7 @@ def test_deleting_car_cascades_at_runtime(db_url: str) -> None:
     async def scenario() -> int:
         session = get_session()
         async with session() as s:
-            car = models.Car(manufacturer="VW", model="Golf", license="ABCD")
+            car = models.Car(manufacturer="VW", model="Golf", license="M-AB1234")
             s.add(car)
             await s.commit()
             car_id = car.id

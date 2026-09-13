@@ -6,13 +6,19 @@ from pydantic import BeforeValidator, BaseModel, Field
 
 from src import models
 
-LICENSE_PATTERN = re.compile(r"[A-Z0-9]{1,10}")
+LICENSE_PATTERN = re.compile(
+    r"[A-Z]{1,3}-(?:[A-Z]\d{1,4}[A-Z]?|[A-Z]{2}\d{1,3}[A-Z]?|[A-Z]{2}\d{4})"
+)
 
 
 def normalize_license(value: str) -> str:
-    normalized = value.upper()
+    normalized = value.upper().replace(" ", "")
     if not LICENSE_PATTERN.fullmatch(normalized):
-        raise ValueError("license must be 1-10 characters of A-Z or 0-9")
+        raise ValueError(
+            "license must be a German license plate: 1-3 uppercase letters, a dash, "
+            "1-2 uppercase letters, 1-4 digits, and optionally one uppercase letter "
+            "after the digits (e.g. M-AB1234)"
+        )
     return normalized
 
 
