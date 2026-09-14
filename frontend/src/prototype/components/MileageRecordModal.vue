@@ -2,7 +2,13 @@
 // PROTOTYPE ONLY — throwaway mileage-record create/edit modal.
 import { computed, reactive, ref, watch } from 'vue'
 import { carLabel, todayIso } from '../format'
-import { addMileageRecord, cars, latestRecord, updateMileageRecord } from '../store'
+import {
+  addMileageRecord,
+  cars,
+  deleteMileageRecord,
+  latestRecord,
+  updateMileageRecord,
+} from '../store'
 import type { MileageRecord } from '../types'
 
 const props = defineProps<{
@@ -71,6 +77,13 @@ function save() {
   }
   onUpdateOpen(false)
 }
+
+function remove() {
+  if (!props.record) return
+  if (!window.confirm('Delete this reading?')) return
+  deleteMileageRecord(props.record.id)
+  onUpdateOpen(false)
+}
 </script>
 
 <template>
@@ -97,7 +110,17 @@ function save() {
       </form>
     </template>
     <template #footer>
-      <div class="flex w-full items-center justify-end gap-2">
+      <div class="flex w-full items-center gap-2">
+        <UButton
+          v-if="record"
+          color="error"
+          variant="ghost"
+          icon="i-lucide-trash-2"
+          @click="remove"
+        >
+          Delete
+        </UButton>
+        <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="onUpdateOpen(false)">
           Cancel
         </UButton>

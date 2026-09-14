@@ -2,13 +2,7 @@
 // PROTOTYPE ONLY — throwaway per-car detail: mileage + insurance tabs.
 import { computed, ref } from 'vue'
 import { formatDate, formatKm } from '../format'
-import {
-  currentReport,
-  deleteInsuranceReport,
-  deleteMileageRecord,
-  recordsForCar,
-  reportsForCar,
-} from '../store'
+import { currentReport, recordsForCar, reportsForCar } from '../store'
 import type { Car, InsuranceReport, MileageRecord } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
@@ -76,10 +70,6 @@ function openEditRecord(record: MileageRecord) {
   recordModalOpen.value = true
 }
 
-function removeRecord(record: MileageRecord) {
-  if (window.confirm('Delete this reading?')) deleteMileageRecord(record.id)
-}
-
 function openAddReport() {
   editingReport.value = null
   reportModalOpen.value = true
@@ -90,9 +80,6 @@ function openEditReport(report: InsuranceReport) {
   reportModalOpen.value = true
 }
 
-function removeReport(report: InsuranceReport) {
-  if (window.confirm('Delete this report?')) deleteInsuranceReport(report.id)
-}
 </script>
 
 <template>
@@ -133,7 +120,6 @@ function removeReport(report: InsuranceReport) {
             <template #actions-cell="{ row }">
               <div class="flex justify-end gap-1">
                 <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit reading" @click="openEditRecord(row.original)" />
-                <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" aria-label="Delete reading" @click="removeRecord(row.original)" />
               </div>
             </template>
           </UTable>
@@ -155,7 +141,6 @@ function removeReport(report: InsuranceReport) {
               </div>
               <div class="flex shrink-0 gap-1">
                 <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit reading" @click="openEditRecord(row)" />
-                <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" aria-label="Delete reading" @click="removeRecord(row)" />
               </div>
             </div>
           </UCard>
@@ -203,7 +188,6 @@ function removeReport(report: InsuranceReport) {
             <template #actions-cell="{ row }">
               <div class="flex justify-end gap-1">
                 <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit report" @click="openEditReport(row.original)" />
-                <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" aria-label="Delete report" @click="removeReport(row.original)" />
               </div>
             </template>
           </UTable>
@@ -234,7 +218,6 @@ function removeReport(report: InsuranceReport) {
               </div>
               <div class="flex shrink-0 gap-1">
                 <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit report" @click="openEditReport(row)" />
-                <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" aria-label="Delete report" @click="removeReport(row)" />
               </div>
             </div>
           </UCard>

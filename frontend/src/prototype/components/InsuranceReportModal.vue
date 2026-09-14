@@ -5,6 +5,7 @@ import { carLabel, todayIso } from '../format'
 import {
   addInsuranceReport,
   cars,
+  deleteInsuranceReport,
   latestRecord,
   updateInsuranceReport,
 } from '../store'
@@ -88,6 +89,13 @@ function save() {
   }
   onUpdateOpen(false)
 }
+
+function remove() {
+  if (!props.report) return
+  if (!window.confirm('Delete this report?')) return
+  deleteInsuranceReport(props.report.id)
+  onUpdateOpen(false)
+}
 </script>
 
 <template>
@@ -117,7 +125,17 @@ function save() {
       </form>
     </template>
     <template #footer>
-      <div class="flex w-full items-center justify-end gap-2">
+      <div class="flex w-full items-center gap-2">
+        <UButton
+          v-if="report"
+          color="error"
+          variant="ghost"
+          icon="i-lucide-trash-2"
+          @click="remove"
+        >
+          Delete
+        </UButton>
+        <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="onUpdateOpen(false)">
           Cancel
         </UButton>

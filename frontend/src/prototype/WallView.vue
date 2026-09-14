@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// PROTOTYPE ONLY — design variant "Wall": a wall of car cards with key
-// numbers; the detail opens transiently in a slideover. Surface colors come
-// from the active style draft (see themes.ts).
-import { computed, ref } from 'vue'
+// PROTOTYPE ONLY — throwaway code. The locked-in design: a wall of car
+// cards with key numbers; the detail opens transiently in a slideover.
+// The dark style is fixed (see theme.ts).
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { carLabel, formatKm } from './format'
 import {
   carById,
@@ -13,14 +13,13 @@ import {
   reportsForCar,
 } from './store'
 import type { Car } from './types'
-import type { StyleDraft } from './themes'
+import { applyTheme, clearTheme, theme } from './theme'
 import CarSlideover from './components/CarSlideover.vue'
 import CarFormModal from './components/CarFormModal.vue'
 import LicensePlate from './components/LicensePlate.vue'
 
-const props = defineProps<{
-  theme: StyleDraft
-}>()
+onMounted(applyTheme)
+onUnmounted(clearTheme)
 
 const selectedCarId = ref<number | null>(null)
 const selectedCar = computed<Car | undefined>(() => carById(selectedCarId.value))
@@ -34,11 +33,6 @@ function openCar(car: Car) {
 
 function openAddCar() {
   editingCar.value = null
-  carFormOpen.value = true
-}
-
-function openEditCar(car: Car) {
-  editingCar.value = car
   carFormOpen.value = true
 }
 </script>
@@ -59,27 +53,16 @@ function openEditCar(car: Car) {
         role="button"
         tabindex="0"
         class="group cursor-pointer rounded-xl border p-4 text-left transition-colors"
-        :class="props.theme.card"
+        :class="theme.card"
         @click="openCar(car)"
         @keydown.enter="openCar(car)"
         @keydown.space.prevent="openCar(car)"
       >
-        <div class="flex items-start justify-between gap-2">
-          <LicensePlate :license="car.license" size="sm" />
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-lucide-pencil"
-            class="opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
-            aria-label="Edit car"
-            @click.stop="openEditCar(car)"
-          />
-        </div>
+        <LicensePlate :license="car.license" size="sm" />
         <p class="mt-3 font-medium">{{ carLabel(car) }}</p>
 
         <dl class="mt-4 grid grid-cols-2 gap-2 text-sm">
-          <div class="rounded-lg p-2" :class="props.theme.statTile">
+          <div class="rounded-lg p-2" :class="theme.statTile">
             <dt class="text-xs text-muted">Latest</dt>
             <dd class="font-medium tabular-nums">
               <template v-if="latestRecord(car.id)">
@@ -88,7 +71,7 @@ function openEditCar(car: Car) {
               <span v-else class="text-muted">—</span>
             </dd>
           </div>
-          <div class="rounded-lg p-2" :class="props.theme.statTile">
+          <div class="rounded-lg p-2" :class="theme.statTile">
             <dt class="text-xs text-muted">Cap / year</dt>
             <dd class="font-medium tabular-nums">
               <template v-if="currentReport(car.id)">
@@ -108,7 +91,7 @@ function openEditCar(car: Car) {
       <button
         type="button"
         class="flex min-h-32 items-center justify-center rounded-xl border border-dashed text-sm transition-colors"
-        :class="props.theme.addTile"
+        :class="theme.addTile"
         @click="openAddCar"
       >
         + Add car

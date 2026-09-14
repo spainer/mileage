@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // PROTOTYPE ONLY — shared transient car details: slideover with license-first
-// header and iOS-style swipe-to-close. Nuxt UI has no built-in gesture, so the
-// touch handling lives here, outside the library.
-import { onUnmounted, watch } from 'vue'
+// header and a single edit action (deleting lives inside the edit modal).
+// Nuxt UI has no built-in swipe-to-close, so the touch handling lives here,
+// outside the library.
+import { onUnmounted, ref, watch } from 'vue'
 import { carLabel } from '../format'
 import type { Car } from '../types'
 import CarDetails from './CarDetails.vue'
+import CarFormModal from './CarFormModal.vue'
 import LicensePlate from './LicensePlate.vue'
 
 const props = defineProps<{ car: Car | null }>()
@@ -14,9 +16,17 @@ const emit = defineEmits<{ close: [] }>()
 const SWIPE_EDGE = 40
 const SWIPE_DISTANCE = 60
 let swipeCleanup: (() => void) | null = null
+const editOpen = ref(false)
 
 function onOpenChange(value: boolean) {
-  if (!value) emit('close')
+  if (!value) {
+    editOpen.value = false
+    emit('close')
+  }
+}
+
+function openEdit() {
+  editOpen.value = true
 }
 
 function installSwipeClose() {
@@ -55,6 +65,7 @@ watch(
   (open) => {
     swipeCleanup?.()
     swipeCleanup = open ? installSwipeClose() : null
+    if (!open) editOpen.value = false
   },
 )
 onUnmounted(() => swipeCleanup?.())
@@ -63,6 +74,7 @@ onUnmounted(() => swipeCleanup?.())
 <template>
   <USlideover
     :open="car !== null"
+    :close="false"
     :description="car ? carLabel(car) : ''"
     class="w-full max-w-lg"
     @update:open="onOpenChange"
@@ -70,8 +82,13 @@ onUnmounted(() => swipeCleanup?.())
     <template v-if="car" #title>
       <LicensePlate :license="car.license" />
     </template>
+    <template v-if="car" #actions>
+      <span class="grow" />
+      <UButton size="sm" variant="ghost" icon="i-lucide-pencil" aria-label="Edit car" @click="openEdit" />
+    </template>
     <template #body>
       <CarDetails v-if="car" :car="car" />
     </template>
   </USlideover>
+  <CarFormModal v-if="car" :open="editOpen" :car="car" @update:open="editOpen = $event" />
 </template>
