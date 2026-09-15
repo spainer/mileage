@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
+import CarSlideover from '../components/CarSlideover.vue'
 import LicensePlate from '../components/LicensePlate.vue'
 import { carLabel, formatDate, formatKm } from '../format'
 import { theme } from '../theme'
 import {
+  carById,
   cars,
   currentReport,
   error,
@@ -14,6 +16,7 @@ import {
   recordsForCar,
   reportsForCar,
 } from '../state'
+import type { Car } from '../types'
 
 onMounted(() => {
   void load()
@@ -32,6 +35,13 @@ const cards = computed(() =>
     reportCount: reportsForCar(car.id).length,
   })),
 )
+
+const selectedCarId = ref<number | null>(null)
+const selectedCar = computed(() => carById(selectedCarId.value) ?? null)
+
+function openCar(car: Car) {
+  selectedCarId.value = car.id
+}
 </script>
 
 <template>
@@ -60,8 +70,13 @@ const cards = computed(() =>
         <div
           v-for="{ car, latest, cap, recordCount, reportCount } in cards"
           :key="car.id"
-          class="rounded-xl border p-4 transition-colors"
+          role="button"
+          tabindex="0"
+          class="group cursor-pointer rounded-xl border p-4 text-left transition-colors"
           :class="theme.card"
+          @click="openCar(car)"
+          @keydown.enter.prevent="openCar(car)"
+          @keydown.space.prevent="openCar(car)"
         >
           <LicensePlate :license="car.license" size="sm" />
           <p class="mt-3 font-medium">{{ carLabel(car) }}</p>
@@ -97,5 +112,7 @@ const cards = computed(() =>
         </div>
       </div>
     </template>
+
+    <CarSlideover :car="selectedCar" @close="selectedCarId = null" />
   </div>
 </template>

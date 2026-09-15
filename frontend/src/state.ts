@@ -50,8 +50,26 @@ export function reportsForCar(carId: number): InsuranceReport[] {
   return byCar(insuranceReports.value, carId)
 }
 
+export function carById(id: number | null): Car | undefined {
+  return cars.value.find((car) => car.id === id)
+}
+
 export function latestRecord(carId: number): MileageRecord | undefined {
   return recordsForCar(carId)[0]
+}
+
+export interface MileageRow extends MileageRecord {
+  delta: number | null
+}
+
+export function mileageRowsForCar(carId: number): MileageRow[] {
+  const records = recordsForCar(carId)
+  return records.map((record, index) => ({
+    ...record,
+    delta: records[index + 1]
+      ? record.odometerReading - records[index + 1].odometerReading
+      : null,
+  }))
 }
 
 export function currentReport(carId: number): InsuranceReport | undefined {

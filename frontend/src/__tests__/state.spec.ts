@@ -244,3 +244,76 @@ describe('query types', () => {
     expect(reports).toEqual([])
   })
 })
+
+describe('slideover queries', () => {
+  it('returns a car by id', async () => {
+    fetchMock.mockImplementation((url: string) => route(url))
+    await state.load()
+
+    expect(state.carById(1)).toEqual({
+      id: 1,
+      manufacturer: 'Volkswagen',
+      model: 'Golf',
+      license: 'M-AB1234',
+    })
+  })
+
+  it('returns no car for an unknown or null id', async () => {
+    fetchMock.mockImplementation((url: string) => route(url))
+    await state.load()
+
+    expect(state.carById(999)).toBeUndefined()
+    expect(state.carById(null)).toBeUndefined()
+  })
+
+  it('lists the car\'s records newest first with the delta since the previous reading', async () => {
+    fetchMock.mockImplementation((url: string) => route(url))
+    await state.load()
+
+    expect(state.mileageRowsForCar(1)).toEqual([
+      { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400, delta: 17190 },
+      { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
+    ])
+  })
+
+  it('lists a single record with no delta', async () => {
+    fetchMock.mockImplementation((url: string) => route(url))
+    await state.load()
+
+    expect(state.mileageRowsForCar(2)).toEqual([
+      { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000, delta: null },
+    ])
+  })
+
+  it('lists a negative delta when a reading went down', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url) === '/api/cars') {
+        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
+      }
+      if (String(url) === '/api/cars/9/mileage-records') {
+        return jsonResponse([
+          { id: 91, car_id: 9, date: '2026-01-01', odometer_reading: 10000 },
+          { id: 92, car_id: 9, date: '2026-02-01', odometer_reading: 12000 },
+          { id: 93, car_id: 9, date: '2026-03-01', odometer_reading: 11000 },
+        ])
+      }
+      return jsonResponse([])
+    })
+    await state.load()
+
+    expect(state.mileageRowsForCar(9).map((row) => row.id)).toEqual([93, 92, 91])
+    expect(state.mileageRowsForCar(9).map((row) => row.delta)).toEqual([-1000, 2000, null])
+  })
+
+  it('returns no rows for a car without records', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url) === '/api/cars') {
+        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
+      }
+      return jsonResponse([])
+    })
+    await state.load()
+
+    expect(state.mileageRowsForCar(9)).toEqual([])
+  })
+})
