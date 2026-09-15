@@ -1,0 +1,246 @@
+import { expect, test, type Page } from '@playwright/test'
+
+import { formatDate, formatKm } from '../src/format'
+
+const BACKEND = 'http://localhost:8000/api'
+
+async function request(path: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(`${BACKEND}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+  if (!response.ok) {
+    throw new Error(`API ${path} failed: ${response.status} ${await response.text()}`)
+  }
+  if (response.status === 204) return null
+  return response.json()
+}
+
+function daysFromNow(days: number): string {
+  const date = new Date(Date.now() + days * 86_400_000)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+const firstDate = daysFromNow(-60)
+const secondDate = daysFromNow(-30)
+const latestDate = daysFromNow(-1)
+const inForceDate = daysFromNow(-400)
+const futureDate = daysFromNow(30)
+
+let carId = 0
+let emptyCarId = 0
+
+async function wipeCars(): Promise<void> {
+  const cars = (await request('/cars')) as Array<{ id: number }>
+  for (const car of cars) {
+    await request(`/cars/${car.id}`, { method: 'DELETE' })
+  }
+}
+
+async function seed(): Promise<void> {
+  const car = (await request('/cars', {
+    method: 'POST',
+    body: JSON.stringify({ manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }),
+  })) as { id: number }
+  carId = car.id
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: firstDate, odometer_reading: 84210 }),
+  })
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: secondDate, odometer_reading: 93400 }),
+  })
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: latestDate, odometer_reading: 101400 }),
+  })
+  await request(`/cars/${carId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({ date: inForceDate, odometer_reading: 85000, mileage_per_year: 12000 }),
+  })
+  await request(`/cars/${carId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({ date: futureDate, odometer_reading: 110000, mileage_per_year: 9999 }),
+  })
+
+  const empty = (await request('/cars', {
+    method: 'POST',
+    body: JSON.stringify({ manufacturer: 'Audi', model: 'A3', license: 'M-GC4821' }),
+  })) as { id: number }
+  emptyCarId = empty.id
+}
+
+async function openSlideover(page: Page, plate: string) {
+  await page.locator('[role="button"]', { hasText: plate }).click()
+  return page.getByRole('dialog')
+}
+
+function swipe(page: Page, { startX, startY, dx, dy }: { startX: number; startY: number; dx: number; dy: number }) {
+  return page.evaluate(
+    ({ startX, startY, dx, dy }) => {
+      const target = document.body
+      const start = new Touch({ identifier: 1, target, clientX: startX, clientY: startY })
+      const end = new Touch({ identifier: 1, target, clientX: startX + dx, clientY: startY + dy })
+      window.dispatchEvent(
+        new TouchEvent('touchstart', { touches: [start], bubbles: true, cancelable: true }),
+      )
+      window.dispatchEvent(
+        new TouchEvent('touchmove', { touches: [end], bubbles: true, cancelable: true }),
+      )
+      window.dispatchEvent(
+        new TouchEvent('touchend', { changedTouches: [end], bubbles: true, cancelable: true }),
+      )
+    },
+    { startX, startY, dx, dy },
+  )
+}
+
+test.beforeEach(async () => {
+  await wipeCars()
+  await seed()
+})
+
+test.afterEach(async () => {
+  await wipeCars()
+})
+
+test('clicking a card opens the slideover with the plate as title and the car label as description', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('M - AB 1234')).toBeVisible()
+  await expect(dialog.getByText('Volkswagen Golf')).toBeVisible()
+})
+
+test('lists the mileage records newest first with the Latest summary and Since last deltas', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await expect(dialog.getByText(`Latest: ${formatKm(101400)} km on ${formatDate(latestDate)}`).first()).toBeVisible()
+
+  const body = dialog.locator('tbody')
+  await expect(body.locator('tr')).toHaveCount(3)
+  await expect(body.locator('tr').nth(0)).toContainText(formatKm(101400))
+  await expect(body.locator('tr').nth(0)).toContainText(`+${formatKm(8000)}`)
+  await expect(body.locator('tr').nth(1)).toContainText(formatKm(93400))
+  await expect(body.locator('tr').nth(1)).toContainText(`+${formatKm(9190)}`)
+  await expect(body.locator('tr').nth(2)).toContainText(formatKm(84210))
+  await expect(body.locator('tr').nth(2)).toContainText('—')
+})
+
+test('lists the insurance reports newest first with the In force summary and badge', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await dialog.getByRole('tab', { name: 'Insurance' }).click()
+
+  await expect(dialog.getByText(`In force: ${formatKm(12000)} km/year`).first()).toBeVisible()
+
+  const body = dialog.locator('tbody')
+  await expect(body.locator('tr')).toHaveCount(2)
+  const futureRow = body.locator('tr').nth(0)
+  const inForceRow = body.locator('tr').nth(1)
+  await expect(futureRow).toContainText(formatKm(9999))
+  await expect(futureRow).not.toContainText('In force')
+  await expect(inForceRow).toContainText(formatKm(12000))
+  await expect(inForceRow.getByText('In force')).toBeVisible()
+})
+
+test('shows the empty states for a car without records or reports', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - GC 4821')
+
+  await expect(dialog.getByText('No readings yet')).toBeVisible()
+  await expect(dialog.getByText('No mileage readings yet.').first()).toBeVisible()
+
+  await dialog.getByRole('tab', { name: 'Insurance' }).click()
+  await expect(dialog.getByText('no report yet')).toBeVisible()
+  await expect(dialog.getByText('No insurance reports yet.').first()).toBeVisible()
+})
+
+test('renders the lists as tables on desktop', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await expect(dialog.getByRole('table')).toBeVisible()
+  await expect(dialog.locator('table')).toBeVisible()
+})
+
+test('renders the lists as card lists on small screens', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await expect(dialog.locator('table')).toBeHidden()
+  const mileageCards = dialog.locator('div.md\\:hidden')
+  await expect(mileageCards.getByText(`${formatKm(101400)} km`)).toBeVisible()
+  await expect(mileageCards.getByText(`${formatDate(latestDate)} · +${formatKm(8000)} km`)).toBeVisible()
+  await expect(mileageCards.getByText(`${formatDate(firstDate)} · —`)).toBeVisible()
+
+  await dialog.getByRole('tab', { name: 'Insurance' }).click()
+  await expect(dialog.locator('table')).toBeHidden()
+  const insuranceCards = dialog.locator('div.md\\:hidden')
+  await expect(insuranceCards.getByText(`${formatKm(12000)} km/year`)).toBeVisible()
+  await expect(insuranceCards.getByText('In force')).toBeVisible()
+})
+
+test('closes on a left-edge swipe and leaves the wall unchanged', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+
+  await swipe(page, { startX: 5, startY: 400, dx: 80, dy: 0 })
+  await expect(dialog).toBeHidden()
+
+  const card = page.locator('[role="button"]', { hasText: 'M - AB 1234' })
+  await expect(card).toBeVisible()
+  await expect(card).toContainText(`${formatKm(101400)} km`)
+
+  await card.click()
+  await expect(dialog).toBeVisible()
+})
+
+test('ignores swipes that start away from the left edge or are not horizontal', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await swipe(page, { startX: 200, startY: 400, dx: 80, dy: 0 })
+  await expect(dialog).toBeVisible()
+
+  await swipe(page, { startX: 5, startY: 400, dx: 10, dy: 120 })
+  await expect(dialog).toBeVisible()
+})
+
+test('still closes with the usual affordances', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+
+  await page.waitForFunction(() => {
+    const d = document.querySelector('[role="dialog"]')
+    return !!d && d.contains(document.activeElement)
+  })
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  await page.locator('[role="button"]', { hasText: 'M - AB 1234' }).click()
+  await expect(dialog).toBeVisible()
+
+  await page.mouse.click(100, 400)
+  await expect(dialog).toBeHidden()
+})
