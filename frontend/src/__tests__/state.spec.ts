@@ -380,6 +380,220 @@ describe('car mutations', () => {
   })
 })
 
+describe('mileage record mutations', () => {
+  function seedRecords() {
+    state.cars.value = [{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }]
+    state.mileageRecords.value = [
+      { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210 },
+      { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400 },
+      { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000 },
+    ]
+  }
+
+  describe('createMileageRecord', () => {
+    it('sends a POST /api/cars/{id}/mileage-records and adds the returned record', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 13, car_id: 1, date: '2026-09-15', odometer_reading: 104300 }, 201),
+      )
+
+      const record = await state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/mileage-records')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ date: '2026-09-15', odometer_reading: 104300 })
+      expect(record).toEqual({ id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300 })
+      expect(state.latestRecord(1)).toEqual({ id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300 })
+    })
+
+    it('recomputes the deltas for the new row', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 13, car_id: 1, date: '2026-09-15', odometer_reading: 104300 }, 201),
+      )
+
+      await state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 })
+
+      expect(state.mileageRowsForCar(1)).toEqual([
+        { id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300, delta: 2900 },
+        { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400, delta: 17190 },
+        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
+      ])
+      expect(state.mileageRowsForCar(2)).toHaveLength(1)
+    })
+
+    it('propagates a validation error verbatim and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 400,
+            detail: 'Validation failed for POST /api/cars/1/mileage-records',
+            extra: [{ message: 'odometer_reading: Input should be a valid integer', key: 'odometer_reading' }],
+          },
+          400,
+        ),
+      )
+
+      await expect(
+        state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 }),
+      ).rejects.toThrow('odometer_reading: Input should be a valid integer')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+
+    it('propagates a 422 error verbatim and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 422,
+            detail: 'Validation failed for POST /api/cars/1/mileage-records',
+            extra: [{ message: 'odometer_reading: Input should be greater than or equal to 0', key: 'odometer_reading' }],
+          },
+          422,
+        ),
+      )
+
+      await expect(
+        state.createMileageRecord(1, { date: '2026-09-15', odometerReading: -5 }),
+      ).rejects.toThrow('odometer_reading: Input should be greater than or equal to 0')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(
+        state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 }),
+      ).rejects.toThrow('Could not reach the server.')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+  })
+
+  describe('updateMileageRecord', () => {
+    it('sends a PATCH with the provided fields and replaces the record in the state', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 12, car_id: 1, date: '2026-09-01', odometer_reading: 102000 }),
+      )
+
+      const record = await state.updateMileageRecord(1, 12, { date: '2026-09-01', odometerReading: 102000 })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/mileage-records/12')
+      expect(init?.method).toBe('PATCH')
+      expect(JSON.parse(String(init?.body))).toEqual({ date: '2026-09-01', odometer_reading: 102000 })
+      expect(record).toEqual({ id: 12, carId: 1, date: '2026-09-01', odometerReading: 102000 })
+      expect(state.mileageRecords.value).toEqual([
+        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210 },
+        { id: 12, carId: 1, date: '2026-09-01', odometerReading: 102000 },
+        { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000 },
+      ])
+    })
+
+    it('saves a reading lower than the previous one and shows the negative delta', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 12, car_id: 1, date: '2026-08-30', odometer_reading: 80000 }),
+      )
+
+      await state.updateMileageRecord(1, 12, { odometerReading: 80000 })
+
+      expect(state.latestRecord(1)).toEqual({ id: 12, carId: 1, date: '2026-08-30', odometerReading: 80000 })
+      expect(state.mileageRowsForCar(1)).toEqual([
+        { id: 12, carId: 1, date: '2026-08-30', odometerReading: 80000, delta: -4210 },
+        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
+      ])
+    })
+
+    it('propagates a validation error verbatim and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 400,
+            detail: 'Validation failed for PATCH /api/cars/1/mileage-records/12',
+            extra: [{ message: 'odometer_reading: Input should be greater than or equal to 0', key: 'odometer_reading' }],
+          },
+          400,
+        ),
+      )
+
+      await expect(
+        state.updateMileageRecord(1, 12, { odometerReading: -5 }),
+      ).rejects.toThrow('odometer_reading: Input should be greater than or equal to 0')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+
+    it('propagates a 404 error and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(jsonResponse({ status_code: 404, detail: 'Mileage record 99 not found' }, 404))
+
+      await expect(state.updateMileageRecord(1, 99, { odometerReading: 500 })).rejects.toThrow(
+        'Mileage record 99 not found',
+      )
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.updateMileageRecord(1, 12, { odometerReading: 90000 })).rejects.toThrow(
+        'Could not reach the server.',
+      )
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+  })
+
+  describe('deleteMileageRecord', () => {
+    it('sends a DELETE and removes the record; the derived values follow', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+
+      await state.deleteMileageRecord(1, 12)
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/mileage-records/12')
+      expect(init?.method).toBe('DELETE')
+      expect(init?.body).toBeUndefined()
+      expect(state.latestRecord(1)).toEqual({ id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210 })
+      expect(state.mileageRowsForCar(1)).toEqual([
+        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
+      ])
+      expect(state.mileageRowsForCar(2)).toHaveLength(1)
+    })
+
+    it('propagates a 404 error and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ status_code: 404, detail: 'Mileage record 99 not found' }, 404),
+      )
+
+      await expect(state.deleteMileageRecord(1, 99)).rejects.toThrow('Mileage record 99 not found')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedRecords()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.deleteMileageRecord(1, 12)).rejects.toThrow('Could not reach the server.')
+
+      expect(state.mileageRecords.value).toHaveLength(3)
+    })
+  })
+})
+
 describe('query types', () => {
   it('queries return the domain types', () => {
     const records: MileageRecord[] = state.recordsForCar(1)

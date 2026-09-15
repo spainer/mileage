@@ -23,6 +23,10 @@ export function carLabel(car: Car): string {
   return `${car.manufacturer} ${car.model}`
 }
 
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Something went wrong.'
+}
+
 const LICENSE_PATTERN =
   /^[A-Z]{1,3}-(?:[A-Z]\d{1,4}[A-Z]?|[A-Z]{2}\d{1,3}[A-Z]?|[A-Z]{2}\d{4})$/
 

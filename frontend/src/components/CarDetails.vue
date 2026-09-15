@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
-import { formatDate, formatKm } from '../format'
+import { useConfirm } from '../composables/useConfirm'
+import { errorMessage, formatDate, formatKm } from '../format'
 import {
   currentReport,
+  deleteMileageRecord,
   latestRecord,
   mileageRowsForCar,
   reportsForCar,
 } from '../state'
-import type { Car } from '../types'
+import type { Car, MileageRecord } from '../types'
+import MileageRecordModal from './MileageRecordModal.vue'
 
 const props = defineProps<{
   car: Car
@@ -19,12 +22,20 @@ const latest = computed(() => latestRecord(props.car.id))
 const reports = computed(() => reportsForCar(props.car.id))
 const inForce = computed(() => currentReport(props.car.id))
 
+const recordModalOpen = ref(false)
+const editingRecord = ref<MileageRecord | null>(null)
+const deletingRecordId = ref<number | null>(null)
+const deleteError = ref('')
+
+const { confirm } = useConfirm()
+
 const rightAligned = { class: { th: 'text-right', td: 'text-right' } }
 
 const mileageColumns = [
   { accessorKey: 'date', header: 'Date' },
   { accessorKey: 'odometerReading', header: 'Reading', meta: rightAligned },
   { accessorKey: 'delta', header: 'Since last', meta: rightAligned },
+  { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
 ]
 
 const reportColumns = [
@@ -35,6 +46,35 @@ const reportColumns = [
 
 function deltaLabel(delta: number): string {
   return delta > 0 ? `+${formatKm(delta)}` : formatKm(delta)
+}
+
+function openAddRecord() {
+  editingRecord.value = null
+  recordModalOpen.value = true
+}
+
+function openEditRecord(record: MileageRecord) {
+  editingRecord.value = record
+  recordModalOpen.value = true
+}
+
+async function removeRecord(record: MileageRecord) {
+  if (deletingRecordId.value !== null) return
+  const confirmed = await confirm({
+    title: 'Delete reading',
+    message: `This deletes the reading of ${formatKm(record.odometerReading)} km on ${formatDate(record.date)}.`,
+    confirmLabel: 'Delete',
+  })
+  if (!confirmed) return
+  deletingRecordId.value = record.id
+  deleteError.value = ''
+  try {
+    await deleteMileageRecord(props.car.id, record.id)
+  } catch (err) {
+    deleteError.value = errorMessage(err)
+  } finally {
+    deletingRecordId.value = null
+  }
 }
 </script>
 
@@ -47,14 +87,27 @@ function deltaLabel(delta: number): string {
   >
     <template #mileage>
       <div class="grid gap-3">
-        <p v-if="latest" class="truncate text-sm text-muted">
-          Latest:
-          <span class="font-medium text-foreground">
-            {{ formatKm(latest.odometerReading) }} km
-          </span>
-          on {{ formatDate(latest.date) }}
-        </p>
-        <p v-else class="text-sm text-muted">No readings yet</p>
+        <div class="flex items-center justify-between gap-2">
+          <p v-if="latest" class="truncate text-sm text-muted">
+            Latest:
+            <span class="font-medium text-foreground">
+              {{ formatKm(latest.odometerReading) }} km
+            </span>
+            on {{ formatDate(latest.date) }}
+          </p>
+          <p v-else class="text-sm text-muted">No readings yet</p>
+          <UButton size="sm" color="primary" icon="i-lucide-plus" @click="openAddRecord">
+            Add reading
+          </UButton>
+        </div>
+
+        <div
+          v-if="deleteError"
+          class="rounded-lg bg-error/10 px-3 py-2 text-sm text-error"
+          role="alert"
+        >
+          {{ deleteError }}
+        </div>
 
         <div class="hidden md:block">
           <UTable v-if="rows.length" :data="rows" :columns="mileageColumns">
@@ -75,6 +128,28 @@ function deltaLabel(delta: number): string {
               </span>
               <span v-else class="text-muted">—</span>
             </template>
+            <template #actions-cell="{ row }">
+              <div class="flex justify-end gap-1">
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit reading"
+                  :disabled="deletingRecordId !== null"
+                  @click="openEditRecord(row.original)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-trash-2"
+                  aria-label="Delete reading"
+                  :disabled="deletingRecordId !== null"
+                  @click="removeRecord(row.original)"
+                />
+              </div>
+            </template>
           </UTable>
           <p
             v-else
@@ -86,14 +161,38 @@ function deltaLabel(delta: number): string {
 
         <div class="grid gap-2 md:hidden">
           <UCard v-for="row in rows" :key="row.id">
-            <p class="font-medium tabular-nums">
-              {{ formatKm(row.odometerReading) }} km
-            </p>
-            <p class="text-sm text-muted tabular-nums">
-              {{ formatDate(row.date) }}
-              <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
-              <span v-else> · —</span>
-            </p>
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <p class="font-medium tabular-nums">
+                  {{ formatKm(row.odometerReading) }} km
+                </p>
+                <p class="text-sm text-muted tabular-nums">
+                  {{ formatDate(row.date) }}
+                  <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
+                  <span v-else> · —</span>
+                </p>
+              </div>
+              <div class="flex shrink-0 gap-1">
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit reading"
+                  :disabled="deletingRecordId !== null"
+                  @click="openEditRecord(row)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-trash-2"
+                  aria-label="Delete reading"
+                  :disabled="deletingRecordId !== null"
+                  @click="removeRecord(row)"
+                />
+              </div>
+            </div>
           </UCard>
           <p
             v-if="rows.length === 0"
@@ -176,4 +275,11 @@ function deltaLabel(delta: number): string {
       </div>
     </template>
   </UTabs>
+
+  <MileageRecordModal
+    :open="recordModalOpen"
+    :car="car"
+    :record="editingRecord"
+    @update:open="recordModalOpen = $event"
+  />
 </template>

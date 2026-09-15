@@ -1,6 +1,12 @@
 import { ref } from 'vue'
 
-import { api, type CreateCarInput, type UpdateCarInput } from './api/client'
+import {
+  api,
+  type CreateCarInput,
+  type CreateMileageRecordInput,
+  type UpdateCarInput,
+  type UpdateMileageRecordInput,
+} from './api/client'
 import { todayIso } from './format'
 import type { Car, InsuranceReport, MileageRecord } from './types'
 
@@ -48,6 +54,31 @@ export async function deleteCar(id: number): Promise<void> {
   cars.value = cars.value.filter((car) => car.id !== id)
   mileageRecords.value = mileageRecords.value.filter((record) => record.carId !== id)
   insuranceReports.value = insuranceReports.value.filter((report) => report.carId !== id)
+}
+
+export async function createMileageRecord(
+  carId: number,
+  data: CreateMileageRecordInput,
+): Promise<MileageRecord> {
+  const record = await api.createMileageRecord(carId, data)
+  mileageRecords.value.push(record)
+  return record
+}
+
+export async function updateMileageRecord(
+  carId: number,
+  recordId: number,
+  data: UpdateMileageRecordInput,
+): Promise<MileageRecord> {
+  const record = await api.updateMileageRecord(carId, recordId, data)
+  const index = mileageRecords.value.findIndex((existing) => existing.id === recordId)
+  if (index !== -1) mileageRecords.value[index] = record
+  return record
+}
+
+export async function deleteMileageRecord(carId: number, recordId: number): Promise<void> {
+  await api.deleteMileageRecord(carId, recordId)
+  mileageRecords.value = mileageRecords.value.filter((record) => record.id !== recordId)
 }
 
 interface CarItem {
