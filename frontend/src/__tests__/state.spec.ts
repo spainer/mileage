@@ -236,6 +236,150 @@ describe('queries', () => {
   })
 })
 
+describe('car mutations', () => {
+  const newCarWire = { id: 3, manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' }
+
+  function seedCar1() {
+    state.cars.value = [{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }]
+    state.mileageRecords.value = [
+      { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210 },
+      { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000 },
+    ]
+    state.insuranceReports.value = [
+      { id: 31, carId: 1, date: '2026-02-01', odometerReading: 93400, mileagePerYear: 12000 },
+      { id: 41, carId: 2, date: '2025-03-10', odometerReading: 42000, mileagePerYear: 8000 },
+    ]
+  }
+
+  describe('createCar', () => {
+    it('sends a POST /api/cars with the normalized domain data and adds the returned car', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(newCarWire, 201))
+
+      const car = await state.createCar({ manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' })
+      expect(car).toEqual({ id: 3, manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' })
+      expect(state.cars.value).toEqual([{ id: 3, manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' }])
+    })
+
+    it('propagates a 409 conflict verbatim and keeps the state unchanged', async () => {
+      seedCar1()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ status_code: 409, detail: 'A car with this license already exists' }, 409),
+      )
+
+      await expect(
+        state.createCar({ manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }),
+      ).rejects.toThrow('A car with this license already exists')
+
+      expect(state.cars.value).toEqual([{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }])
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(
+        state.createCar({ manufacturer: 'Toyota', model: 'Corolla', license: 'K-TOY246' }),
+      ).rejects.toThrow('Could not reach the server.')
+
+      expect(state.cars.value).toEqual([])
+    })
+  })
+
+  describe('updateCar', () => {
+    it('sends a PATCH with the provided fields and replaces the car in the state', async () => {
+      seedCar1()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 1, manufacturer: 'VW', model: 'Golf', license: 'M-AB1234' }),
+      )
+
+      const car = await state.updateCar(1, { manufacturer: 'VW' })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1')
+      expect(init?.method).toBe('PATCH')
+      expect(JSON.parse(String(init?.body))).toEqual({ manufacturer: 'VW' })
+      expect(car).toEqual({ id: 1, manufacturer: 'VW', model: 'Golf', license: 'M-AB1234' })
+      expect(state.cars.value).toEqual([{ id: 1, manufacturer: 'VW', model: 'Golf', license: 'M-AB1234' }])
+    })
+
+    it('propagates a 422 validation error verbatim and keeps the state unchanged', async () => {
+      seedCar1()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 422,
+            detail: 'Validation failed for PATCH /api/cars/1',
+            extra: [{ message: 'license must be a German license plate: (e.g. M-AB1234)', key: 'license' }],
+          },
+          422,
+        ),
+      )
+
+      await expect(state.updateCar(1, { license: 'nope' })).rejects.toThrow(
+        'license must be a German license plate: (e.g. M-AB1234)',
+      )
+
+      expect(state.cars.value).toEqual([{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }])
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedCar1()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.updateCar(1, { manufacturer: 'VW' })).rejects.toThrow('Could not reach the server.')
+
+      expect(state.cars.value).toEqual([{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }])
+    })
+  })
+
+  describe('deleteCar', () => {
+    it('sends a DELETE and removes the car with its mileage records and insurance reports', async () => {
+      seedCar1()
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+
+      await state.deleteCar(1)
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1')
+      expect(init?.method).toBe('DELETE')
+      expect(init?.body).toBeUndefined()
+      expect(state.cars.value).toEqual([])
+      expect(state.mileageRecords.value).toEqual([
+        { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000 },
+      ])
+      expect(state.insuranceReports.value).toEqual([
+        { id: 41, carId: 2, date: '2025-03-10', odometerReading: 42000, mileagePerYear: 8000 },
+      ])
+    })
+
+    it('propagates a 404 error and keeps the state unchanged', async () => {
+      seedCar1()
+      fetchMock.mockResolvedValueOnce(jsonResponse({ status_code: 404, detail: 'Car 1 not found' }, 404))
+
+      await expect(state.deleteCar(1)).rejects.toThrow('Car 1 not found')
+
+      expect(state.cars.value).toHaveLength(1)
+      expect(state.mileageRecords.value).toHaveLength(2)
+      expect(state.insuranceReports.value).toHaveLength(2)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedCar1()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.deleteCar(1)).rejects.toThrow('Could not reach the server.')
+
+      expect(state.cars.value).toHaveLength(1)
+      expect(state.mileageRecords.value).toHaveLength(2)
+      expect(state.insuranceReports.value).toHaveLength(2)
+    })
+  })
+})
+
 describe('query types', () => {
   it('queries return the domain types', () => {
     const records: MileageRecord[] = state.recordsForCar(1)

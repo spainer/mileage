@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+import CarFormModal from '../components/CarFormModal.vue'
 import CarSlideover from '../components/CarSlideover.vue'
 import LicensePlate from '../components/LicensePlate.vue'
 import { carLabel, formatDate, formatKm } from '../format'
@@ -39,8 +40,18 @@ const cards = computed(() =>
 const selectedCarId = ref<number | null>(null)
 const selectedCar = computed(() => carById(selectedCarId.value) ?? null)
 
+const addFormOpen = ref(false)
+
 function openCar(car: Car) {
   selectedCarId.value = car.id
+}
+
+function openAddCar() {
+  addFormOpen.value = true
+}
+
+function onCarDeleted() {
+  selectedCarId.value = null
 }
 </script>
 
@@ -65,8 +76,7 @@ function openCar(car: Car) {
     />
 
     <template v-else>
-      <p v-if="cards.length === 0" class="text-sm text-muted">No cars yet.</p>
-      <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div
           v-for="{ car, latest, cap, recordCount, reportCount } in cards"
           :key="car.id"
@@ -110,9 +120,25 @@ function openCar(car: Car) {
             {{ reportCount }} report{{ reportCount === 1 ? '' : 's' }}
           </p>
         </div>
+
+        <button
+          type="button"
+          class="flex min-h-32 items-center justify-center rounded-xl border border-dashed text-sm transition-colors"
+          :class="theme.addTile"
+          @click="openAddCar"
+        >
+          + Add car
+        </button>
       </div>
     </template>
 
-    <CarSlideover :car="selectedCar" @close="selectedCarId = null" />
+    <CarSlideover :car="selectedCar" @close="selectedCarId = null" @car-deleted="onCarDeleted" />
+
+    <CarFormModal
+      :open="addFormOpen"
+      :car="null"
+      @update:open="addFormOpen = $event"
+      @car-added="openCar"
+    />
   </div>
 </template>

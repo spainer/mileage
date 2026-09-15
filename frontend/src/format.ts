@@ -22,3 +22,14 @@ export function formatKm(value: number): string {
 export function carLabel(car: Car): string {
   return `${car.manufacturer} ${car.model}`
 }
+
+const LICENSE_PATTERN =
+  /^[A-Z]{1,3}-(?:[A-Z]\d{1,4}[A-Z]?|[A-Z]{2}\d{1,3}[A-Z]?|[A-Z]{2}\d{4})$/
+
+export function normalizeLicense(value: string): string {
+  return value.toUpperCase().replace(/ /g, '')
+}
+
+export function isValidLicense(value: string): boolean {
+  return LICENSE_PATTERN.test(normalizeLicense(value))
+}

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-import { api } from './api/client'
+import { api, type CreateCarInput, type UpdateCarInput } from './api/client'
 import { todayIso } from './format'
 import type { Car, InsuranceReport, MileageRecord } from './types'
 
@@ -28,6 +28,26 @@ export async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+export async function createCar(data: CreateCarInput): Promise<Car> {
+  const car = await api.createCar(data)
+  cars.value.push(car)
+  return car
+}
+
+export async function updateCar(id: number, data: UpdateCarInput): Promise<Car> {
+  const car = await api.updateCar(id, data)
+  const index = cars.value.findIndex((existing) => existing.id === id)
+  if (index !== -1) cars.value[index] = car
+  return car
+}
+
+export async function deleteCar(id: number): Promise<void> {
+  await api.deleteCar(id)
+  cars.value = cars.value.filter((car) => car.id !== id)
+  mileageRecords.value = mileageRecords.value.filter((record) => record.carId !== id)
+  insuranceReports.value = insuranceReports.value.filter((report) => report.carId !== id)
 }
 
 interface CarItem {

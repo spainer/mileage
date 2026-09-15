@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { onUnmounted, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 
 import { carLabel } from '../format'
 import type { Car } from '../types'
 import CarDetails from './CarDetails.vue'
+import CarFormModal from './CarFormModal.vue'
 import LicensePlate from './LicensePlate.vue'
 
 const props = defineProps<{ car: Car | null }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; 'car-deleted': [carId: number] }>()
+
+const editOpen = ref(false)
+
+function openEdit() {
+  editOpen.value = true
+}
 
 const SWIPE_EDGE = 40
 const SWIPE_DISTANCE = 60
@@ -55,6 +62,7 @@ watch(
   (open) => {
     swipeCleanup?.()
     swipeCleanup = open ? installSwipeClose() : null
+    if (!open) editOpen.value = false
   },
 )
 onUnmounted(() => swipeCleanup?.())
@@ -71,8 +79,25 @@ onUnmounted(() => swipeCleanup?.())
     <template v-if="car" #title>
       <LicensePlate :license="car.license" />
     </template>
+    <template v-if="car" #actions>
+      <span class="grow" />
+      <UButton
+        size="sm"
+        variant="ghost"
+        icon="i-lucide-pencil"
+        aria-label="Edit car"
+        @click="openEdit"
+      />
+    </template>
     <template v-if="car" #body>
       <CarDetails :car="car" />
     </template>
   </USlideover>
+  <CarFormModal
+    v-if="car"
+    :open="editOpen"
+    :car="car"
+    @update:open="editOpen = $event"
+    @car-deleted="(carId) => emit('car-deleted', carId)"
+  />
 </template>
