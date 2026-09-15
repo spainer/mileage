@@ -3,8 +3,10 @@ import { ref } from 'vue'
 import {
   api,
   type CreateCarInput,
+  type CreateInsuranceReportInput,
   type CreateMileageRecordInput,
   type UpdateCarInput,
+  type UpdateInsuranceReportInput,
   type UpdateMileageRecordInput,
 } from './api/client'
 import { todayIso } from './format'
@@ -79,6 +81,31 @@ export async function updateMileageRecord(
 export async function deleteMileageRecord(carId: number, recordId: number): Promise<void> {
   await api.deleteMileageRecord(carId, recordId)
   mileageRecords.value = mileageRecords.value.filter((record) => record.id !== recordId)
+}
+
+export async function createInsuranceReport(
+  carId: number,
+  data: CreateInsuranceReportInput,
+): Promise<InsuranceReport> {
+  const report = await api.createInsuranceReport(carId, data)
+  insuranceReports.value.push(report)
+  return report
+}
+
+export async function updateInsuranceReport(
+  carId: number,
+  reportId: number,
+  data: UpdateInsuranceReportInput,
+): Promise<InsuranceReport> {
+  const report = await api.updateInsuranceReport(carId, reportId, data)
+  const index = insuranceReports.value.findIndex((existing) => existing.id === reportId)
+  if (index !== -1) insuranceReports.value[index] = report
+  return report
+}
+
+export async function deleteInsuranceReport(carId: number, reportId: number): Promise<void> {
+  await api.deleteInsuranceReport(carId, reportId)
+  insuranceReports.value = insuranceReports.value.filter((report) => report.id !== reportId)
 }
 
 interface CarItem {

@@ -594,6 +594,253 @@ describe('mileage record mutations', () => {
   })
 })
 
+describe('insurance report mutations', () => {
+  function seedReports() {
+    state.cars.value = [{ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }]
+    state.insuranceReports.value = [
+      { id: 30, carId: 1, date: '2025-01-01', odometerReading: 80000, mileagePerYear: 5000 },
+      { id: 31, carId: 1, date: '2026-02-01', odometerReading: 93400, mileagePerYear: 12000 },
+      { id: 32, carId: 1, date: '2027-01-01', odometerReading: 110000, mileagePerYear: 9999 },
+      { id: 41, carId: 2, date: '2025-03-10', odometerReading: 42000, mileagePerYear: 8000 },
+    ]
+  }
+
+  describe('createInsuranceReport', () => {
+    it('sends a POST /api/cars/{id}/insurance-reports with the snake_case data and adds the returned report', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          { id: 33, car_id: 1, date: todayIso(), odometer_reading: 105000, mileage_per_year: 10000 },
+          201,
+        ),
+      )
+
+      const report = await state.createInsuranceReport(1, {
+        date: todayIso(),
+        odometerReading: 105000,
+        mileagePerYear: 10000,
+      })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/insurance-reports')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        date: todayIso(),
+        odometer_reading: 105000,
+        mileage_per_year: 10000,
+      })
+      expect(report).toEqual({ id: 33, carId: 1, date: todayIso(), odometerReading: 105000, mileagePerYear: 10000 })
+      expect(state.reportsForCar(1).map((r) => r.id)).toEqual([32, 33, 31, 30])
+    })
+
+    it('marks the new report in force when it is dated on or before today', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          { id: 33, car_id: 1, date: todayIso(), odometer_reading: 105000, mileage_per_year: 10000 },
+          201,
+        ),
+      )
+
+      await state.createInsuranceReport(1, { date: todayIso(), odometerReading: 105000, mileagePerYear: 10000 })
+
+      expect(state.currentReport(1)?.id).toBe(33)
+      expect(state.currentReport(1)?.mileagePerYear).toBe(10000)
+    })
+
+    it('keeps the previous in-force report when the new one is dated in the future', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          { id: 33, car_id: 1, date: '2027-06-01', odometer_reading: 105000, mileage_per_year: 10000 },
+          201,
+        ),
+      )
+
+      await state.createInsuranceReport(1, { date: '2027-06-01', odometerReading: 105000, mileagePerYear: 10000 })
+
+      expect(state.currentReport(1)?.id).toBe(31)
+    })
+
+    it('propagates a validation error verbatim and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 422,
+            detail: 'Validation failed for POST /api/cars/1/insurance-reports',
+            extra: [{ message: 'mileage_per_year: Input should be greater than or equal to 0', key: 'mileage_per_year' }],
+          },
+          422,
+        ),
+      )
+
+      await expect(
+        state.createInsuranceReport(1, { date: '2026-09-15', odometerReading: 105000, mileagePerYear: -5 }),
+      ).rejects.toThrow('mileage_per_year: Input should be greater than or equal to 0')
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(
+        state.createInsuranceReport(1, { date: '2026-09-15', odometerReading: 105000, mileagePerYear: 10000 }),
+      ).rejects.toThrow('Could not reach the server.')
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+  })
+
+  describe('updateInsuranceReport', () => {
+    it('sends a PATCH with the provided fields and replaces the report in the state', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 31, car_id: 1, date: '2026-02-01', odometer_reading: 93400, mileage_per_year: 10000 }),
+      )
+
+      const report = await state.updateInsuranceReport(1, 31, { mileagePerYear: 10000 })
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/insurance-reports/31')
+      expect(init?.method).toBe('PATCH')
+      expect(JSON.parse(String(init?.body))).toEqual({ mileage_per_year: 10000 })
+      expect(report).toEqual({ id: 31, carId: 1, date: '2026-02-01', odometerReading: 93400, mileagePerYear: 10000 })
+      expect(state.insuranceReports.value).toEqual([
+        { id: 30, carId: 1, date: '2025-01-01', odometerReading: 80000, mileagePerYear: 5000 },
+        { id: 31, carId: 1, date: '2026-02-01', odometerReading: 93400, mileagePerYear: 10000 },
+        { id: 32, carId: 1, date: '2027-01-01', odometerReading: 110000, mileagePerYear: 9999 },
+        { id: 41, carId: 2, date: '2025-03-10', odometerReading: 42000, mileagePerYear: 8000 },
+      ])
+    })
+
+    it('moves the in-force mark to the next older report when the in-force report is edited to a future date', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 31, car_id: 1, date: '2027-06-01', odometer_reading: 93400, mileage_per_year: 12000 }),
+      )
+
+      await state.updateInsuranceReport(1, 31, { date: '2027-06-01' })
+
+      expect(state.currentReport(1)?.id).toBe(30)
+    })
+
+    it('marks an edited future report in force when it is dated on or before today', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 32, car_id: 1, date: '2026-08-01', odometer_reading: 110000, mileage_per_year: 9999 }),
+      )
+
+      await state.updateInsuranceReport(1, 32, { date: '2026-08-01' })
+
+      expect(state.currentReport(1)?.id).toBe(32)
+    })
+
+    it('propagates a validation error verbatim and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          {
+            status_code: 400,
+            detail: 'Validation failed for PATCH /api/cars/1/insurance-reports/31',
+            extra: [{ message: 'mileage_per_year: Input should be greater than or equal to 0', key: 'mileage_per_year' }],
+          },
+          400,
+        ),
+      )
+
+      await expect(state.updateInsuranceReport(1, 31, { mileagePerYear: -5 })).rejects.toThrow(
+        'mileage_per_year: Input should be greater than or equal to 0',
+      )
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+
+    it('propagates a 404 error and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ status_code: 404, detail: 'Insurance report 99 not found' }, 404),
+      )
+
+      await expect(state.updateInsuranceReport(1, 99, { mileagePerYear: 5000 })).rejects.toThrow(
+        'Insurance report 99 not found',
+      )
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.updateInsuranceReport(1, 31, { mileagePerYear: 10000 })).rejects.toThrow(
+        'Could not reach the server.',
+      )
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+  })
+
+  describe('deleteInsuranceReport', () => {
+    it('sends a DELETE and removes the report; the in-force report falls back to the next older one', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+
+      await state.deleteInsuranceReport(1, 31)
+
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('/api/cars/1/insurance-reports/31')
+      expect(init?.method).toBe('DELETE')
+      expect(init?.body).toBeUndefined()
+      expect(state.insuranceReports.value).toHaveLength(3)
+      expect(state.reportsForCar(1).map((r) => r.id)).toEqual([32, 30])
+      expect(state.currentReport(1)?.id).toBe(30)
+    })
+
+    it('leaves the in-force report untouched when deleting another report', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+
+      await state.deleteInsuranceReport(1, 32)
+
+      expect(state.currentReport(1)?.id).toBe(31)
+    })
+
+    it('leaves no in-force report when the in-force report is deleted and only future ones remain', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      await state.deleteInsuranceReport(1, 30)
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+
+      await state.deleteInsuranceReport(1, 31)
+
+      expect(state.currentReport(1)).toBeUndefined()
+    })
+
+    it('propagates a 404 error and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ status_code: 404, detail: 'Insurance report 99 not found' }, 404),
+      )
+
+      await expect(state.deleteInsuranceReport(1, 99)).rejects.toThrow('Insurance report 99 not found')
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+
+    it('propagates a network error and keeps the state unchanged', async () => {
+      seedReports()
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(state.deleteInsuranceReport(1, 31)).rejects.toThrow('Could not reach the server.')
+
+      expect(state.insuranceReports.value).toHaveLength(4)
+    })
+  })
+})
+
 describe('query types', () => {
   it('queries return the domain types', () => {
     const records: MileageRecord[] = state.recordsForCar(1)
