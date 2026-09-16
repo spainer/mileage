@@ -20,7 +20,8 @@ RUN groupadd --system --gid 1000 mileage && \
 COPY --from=deps --chown=mileage:mileage /app/.venv /app/.venv
 WORKDIR /app
 COPY --chown=mileage:mileage backend/pyproject.toml backend/uv.lock ./
-COPY --chown=mileage:mileage backend/src backend/alembic ./
+COPY --chown=mileage:mileage backend/src/ ./src/
+COPY --chown=mileage:mileage backend/alembic/ ./alembic/
 COPY --from=frontend --chown=mileage:mileage /app/dist /frontend/dist
 RUN mkdir -p /data && chown --no-dereference mileage:mileage /data
 ENV PATH="/app/.venv/bin:$PATH" \
