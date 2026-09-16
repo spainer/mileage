@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { formatPlate } from '../format'
+
 const props = defineProps<{
   license: string
   size?: 'sm' | 'md'
 }>()
 
-// Spaced plate: dash surrounded by spaces, space between letters and number
-// (M-AB1234 -> M - AB 1234, B-XYZ 123 -> B - XYZ 123).
-const display = computed(
-  () => props.license.replace(/-/g, ' - ').replace(/(?<=[A-Za-z])(?=\d)/g, ' '),
-)
+const display = computed(() => formatPlate(props.license))
 
 const sizeStyles = {
   sm: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { carLabel, formatDate, formatKm, isValidLicense, normalizeLicense, todayIso } from '../format'
+import { carLabel, formatDate, formatKm, formatPlate, isValidLicense, normalizeLicense, todayIso } from '../format'
 
 describe('formatDate', () => {
   it('formats an ISO date as a de-DE short date', () => {
@@ -19,6 +19,20 @@ describe('formatKm', () => {
 
   it('leaves values below 1000 untouched', () => {
     expect(formatKm(42)).toBe('42')
+  })
+})
+
+describe('formatPlate', () => {
+  it('spaces the dash and separates letters from digits', () => {
+    expect(formatPlate('M-AB1234')).toBe('M - AB 1234')
+  })
+
+  it('supports three-letter classes', () => {
+    expect(formatPlate('B-XYZ123')).toBe('B - XYZ 123')
+  })
+
+  it('supports single-letter classes', () => {
+    expect(formatPlate('A-A123')).toBe('A - A 123')
   })
 })
 

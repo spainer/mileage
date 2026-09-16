@@ -19,6 +19,10 @@ export function formatKm(value: number): string {
   return new Intl.NumberFormat('de-DE').format(value)
 }
 
+export function formatPlate(license: string): string {
+  return license.replace(/-/g, ' - ').replace(/(?<=[A-Za-z])(?=\d)/g, ' ')
+}
+
 export function carLabel(car: Car): string {
   return `${car.manufacturer} ${car.model}`
 }
