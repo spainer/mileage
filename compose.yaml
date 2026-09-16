@@ -1,0 +1,11 @@
+services:
+  mileage:
+    image: ghcr.io/spainer/mileage:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/data
+
+volumes:
+  data:
