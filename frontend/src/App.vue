@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import ConfirmDialog from './components/ConfirmDialog.vue'
 </script>
 
 <template>
    <UApp>
      <RouterView />
+     <ConfirmDialog />
    </UApp>
 </template>
 
