@@ -21,11 +21,12 @@ jobs:
         run: |
           export LC_ALL=C
           if ! [[ "$TAG" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]] || [ "${#TAG}" -gt 128 ]; then
-            echo "::error title=Invalid release tag '${TAG}'::Tag names must be valid Docker image tags."
+            SAFE_TAG=${TAG//\`/}
+            echo "::error title=Invalid release tag '${SAFE_TAG}'::Tag names must be valid Docker image tags."
             {
               echo "## Invalid release tag"
               echo ""
-              echo "Tag \`${TAG}\` is not a valid Docker image tag, so the release was aborted before any build."
+              echo "Tag \`${SAFE_TAG}\` is not a valid Docker image tag, so the release was aborted before any build."
               echo ""
               echo "Docker tags must be at most 128 characters long and may only contain lowercase letters, digits,"
               echo "and the separators `.`, `_`, and `-`, which may not lead, trail, or repeat (e.g. `1.0.0` or `v1.0.0`)."
@@ -33,7 +34,7 @@ jobs:
               echo "To retry, delete the tag, cut a valid one, and push it:"
               echo ""
               echo '```'
-              echo "git push origin :refs/tags/${TAG}"
+              echo "git push origin :refs/tags/${SAFE_TAG}"
               echo "git tag <name>"
               echo "git push origin <name>"
               echo '```'
@@ -146,7 +147,7 @@ jobs:
         run: |
           body=$(curl -sf http://localhost:8000/)
           echo "$body" | grep -q '<div id="app">'
-      - name: Assert app shell is served for an extensionless client-side route
+      - name: Assert app shell is served for a non-API, extensionless path
         run: |
           body=$(curl -sf http://localhost:8000/cars)
           echo "$body" | grep -q '<div id="app">'
