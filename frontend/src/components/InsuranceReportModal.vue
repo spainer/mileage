@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { useConfirm } from '../composables/useConfirm'
 import { errorMessage, formatDate, formatKm, todayIso } from '../format'
-import { createInsuranceReport, deleteInsuranceReport, latestRecord, updateInsuranceReport } from '../state'
+import { boundsHint, fieldError } from '../odometerSequence'
+import {
+  createInsuranceReport,
+  deleteInsuranceReport,
+  entriesForCar,
+  updateInsuranceReport,
+} from '../state'
 import type { Car, InsuranceReport } from '../types'
 
 const props = defineProps<{
@@ -23,6 +29,35 @@ const deleting = ref(false)
 
 const { confirm } = useConfirm()
 
+const excludeId = computed(() => (props.report ? props.report.id : undefined))
+
+const entries = computed(() =>
+  entriesForCar(props.car.id, excludeId.value),
+)
+
+const hint = computed(() => {
+  if (readingError.value) return null
+  return boundsHint(entries.value, form.date)
+})
+
+const readingError = computed(() => {
+  if (!form.date || form.odometerReading === '') return null
+  const reading = Number(form.odometerReading)
+  if (Number.isNaN(reading)) return null
+  return fieldError(entries.value, form.date, reading)
+})
+
+const canSubmit = computed(() => {
+  if (!form.date) return false
+  if (form.odometerReading === '') return false
+  const reading = Number(form.odometerReading)
+  if (Number.isNaN(reading) || reading < 0) return false
+  if (readingError.value) return false
+  const cap = Number(form.mileagePerYear)
+  if (form.mileagePerYear === '' || Number.isNaN(cap) || cap < 0) return false
+  return true
+})
+
 watch(
   () => props.open,
   (open) => {
@@ -36,8 +71,7 @@ watch(
       form.mileagePerYear = String(props.report.mileagePerYear)
     } else {
       form.date = todayIso()
-      const latest = latestRecord(props.car.id)
-      form.odometerReading = latest ? String(latest.odometerReading) : ''
+      form.odometerReading = ''
       form.mileagePerYear = ''
     }
   },
@@ -55,22 +89,27 @@ function onOpenChange(value: boolean) {
 
 function save() {
   if (saving.value) return
-  if (!form.date) {
-    error.value = 'A date is required.'
-    return
-  }
-  const reading = Number(form.odometerReading)
-  if (form.odometerReading === '' || Number.isNaN(reading) || reading < 0) {
-    error.value = 'An odometer reading in km (>= 0) is required.'
-    return
-  }
-  const cap = Number(form.mileagePerYear)
-  if (form.mileagePerYear === '' || Number.isNaN(cap) || cap < 0) {
+  if (!canSubmit.value) {
+    if (!form.date) {
+      error.value = 'A date is required.'
+      return
+    }
+    const reading = Number(form.odometerReading)
+    if (form.odometerReading === '' || Number.isNaN(reading) || reading < 0) {
+      error.value = 'An odometer reading in km (>= 0) is required.'
+      return
+    }
+    if (readingError.value) {
+      error.value = readingError.value
+      return
+    }
     error.value = 'An annual mileage cap in km/year (>= 0) is required.'
     return
   }
   error.value = ''
   saving.value = true
+  const reading = Number(form.odometerReading)
+  const cap = Number(form.mileagePerYear)
   const data = { date: form.date, odometerReading: reading, mileagePerYear: cap }
   const request = props.report
     ? updateInsuranceReport(props.car.id, props.report.id, data)
@@ -124,8 +163,17 @@ async function remove() {
         <UFormField label="Date">
           <UInput v-model="form.date" type="date" />
         </UFormField>
-        <UFormField label="Odometer reading (km)">
-          <UInput v-model="form.odometerReading" type="number" min="0" placeholder="0" />
+        <UFormField
+          label="Odometer reading (km)"
+          :description="hint ?? undefined"
+          :error="readingError ?? undefined"
+        >
+          <UInput
+            v-model="form.odometerReading"
+            type="number"
+            min="0"
+            placeholder="0"
+          />
         </UFormField>
         <UFormField label="Annual mileage cap (km/year)">
           <UInput v-model="form.mileagePerYear" type="number" min="0" placeholder="0" />
@@ -148,7 +196,11 @@ async function remove() {
         <UButton color="neutral" variant="ghost" @click="close">
           Cancel
         </UButton>
-        <UButton color="primary" :disabled="saving || deleting" @click="save">
+        <UButton
+          color="primary"
+          :disabled="saving || deleting || !canSubmit"
+          @click="save"
+        >
           {{ report ? 'Save' : 'Add report' }}
         </UButton>
       </div>

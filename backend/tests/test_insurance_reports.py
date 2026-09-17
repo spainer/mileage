@@ -359,3 +359,197 @@ def test_deleting_car_removes_its_insurance_reports(client, db_url):
         ).scalar_one()
     engine.dispose()
     assert rows == 0
+
+
+def test_create_insurance_report_rejects_below_prior(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=999,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 409
+    assert "1,000" in response.json()["detail"]
+
+
+def test_create_insurance_report_accepts_equal_to_prior(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_insurance_report_rejects_above_later(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=2001,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 409
+    assert "2,000" in response.json()["detail"]
+
+
+def test_create_insurance_report_accepts_equal_to_later(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_insurance_report_rejects_same_date_mismatch(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1500,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1501,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 409
+    assert "1,500" in response.json()["detail"]
+
+
+def test_create_insurance_report_rejects_outside_bounds(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2025-06-01", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+    create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=3000,
+        mileage_per_year=15000,
+    )
+
+    too_low = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=999,
+        mileage_per_year=15000,
+    )
+    too_high = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=3001,
+        mileage_per_year=15000,
+    )
+    just_right = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    assert too_low.status_code == 409
+    assert too_high.status_code == 409
+    assert just_right.status_code == 201
+
+
+def test_create_insurance_report_entries_of_other_cars_do_not_constrain(client):
+    car = create_car(client)
+    other = create_car(client, license="B-KW4567")
+    create_report(
+        client, other["id"], day="2026-06-01", odometer_reading=10000,
+        mileage_per_year=15000,
+    )
+
+    response = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=0,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 201
+
+
+def test_update_insurance_report_excludes_self_from_validation(client):
+    car = create_car(client)
+    report = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1000,
+        mileage_per_year=15000,
+    ).json()
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/insurance-reports/{report['id']}",
+        json={"odometer_reading": 1001},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["odometer_reading"] == 1001
+
+
+def test_update_insurance_report_respects_other_entries(client):
+    car = create_car(client)
+    report = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1500,
+        mileage_per_year=15000,
+    ).json()
+    create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/insurance-reports/{report['id']}",
+        json={"odometer_reading": 2001},
+    )
+
+    assert response.status_code == 409
+    assert "2,000" in response.json()["detail"]
+
+
+def test_update_insurance_report_can_move_into_range(client):
+    car = create_car(client)
+    report = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=1500,
+        mileage_per_year=15000,
+    ).json()
+    create_report(
+        client, car["id"], day="2026-06-01", odometer_reading=2000,
+        mileage_per_year=15000,
+    )
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/insurance-reports/{report['id']}",
+        json={"odometer_reading": 1999},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["odometer_reading"] == 1999
+
+
+def test_create_insurance_report_constrained_by_mileage_record(client):
+    from tests.test_mileage_records import create_record
+
+    car = create_car(client)
+    create_record(client, car["id"], day="2025-06-01", odometer_reading=1000)
+
+    response = create_report(
+        client, car["id"], day="2026-01-15", odometer_reading=999,
+        mileage_per_year=15000,
+    )
+
+    assert response.status_code == 409
+    assert "1,000" in response.json()["detail"]

@@ -155,7 +155,9 @@ test.describe('Garage', () => {
     await expect(reportModal).toBeVisible()
     await expect(reportModal.getByRole('button', { name: 'Delete' })).toHaveCount(0)
     reportDate = await reportModal.getByLabel('Date').inputValue()
-    await expect(reportModal.getByLabel('Odometer reading (km)')).toHaveValue(String(READING))
+    await expect(reportModal.getByLabel('Odometer reading (km)')).toHaveValue('')
+    await expect(reportModal.getByText('Must be 45.678 km.')).toBeVisible()
+    await reportModal.getByLabel('Odometer reading (km)').fill(String(READING))
     await reportModal.getByLabel('Annual mileage cap (km/year)').fill(String(ANNUAL_MILEAGE_CAP))
     await reportModal.getByRole('button', { name: 'Add report' }).click()
     await expect(reportModal).toBeHidden()
@@ -191,6 +193,38 @@ test.describe('Garage', () => {
     await expect(card.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
     await expect(card).toContainText('1 reading')
     await expect(card).toContainText('1 report')
+  })
+
+  test('enforces the odometer sequence rule with hint, live error, and disabled submit', async ({ page }) => {
+    await page.goto('/')
+    const slideover = await openSlideover(page, createdLicense)
+    await expect(slideover).toBeVisible()
+
+    await slideover.getByRole('button', { name: 'Add reading' }).click()
+    const recordModal = page.getByRole('dialog', { name: 'Add reading' })
+    await expect(recordModal).toBeVisible()
+
+    await recordModal.getByLabel('Date').fill(recordDate)
+    await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveValue('')
+    await expect(recordModal.getByText('Must be 45.678 km.')).toBeVisible()
+
+    await recordModal.getByLabel('Odometer reading (km)').fill('1000')
+    await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveAttribute('aria-invalid', 'true')
+    await expect(recordModal.getByText('Odometer reading must be 45.678 km.')).toBeVisible()
+    await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeDisabled()
+
+    await recordModal.getByLabel('Odometer reading (km)').fill(String(READING))
+    await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveAttribute('aria-invalid', 'false')
+    await expect(recordModal.getByText('Odometer reading must be 45.678 km.')).toBeHidden()
+    await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeEnabled()
+
+    await recordModal.getByLabel('Date').fill('2027-01-01')
+    await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveValue(String(READING))
+    await expect(recordModal.getByText('Must be at least 45.678 km.')).toBeVisible()
+    await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeEnabled()
+
+    await recordModal.getByRole('button', { name: 'Cancel' }).click()
+    await expect(recordModal).toBeHidden()
   })
 
   test('deletes the mileage record from the edit modal after confirmation', async ({ page }) => {
