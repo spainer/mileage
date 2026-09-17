@@ -59,7 +59,7 @@ async function seed(): Promise<void> {
   })
   await request(`/cars/${carId}/insurance-reports`, {
     method: 'POST',
-    body: JSON.stringify({ date: inForceDate, odometer_reading: 85000, mileage_per_year: 12000 }),
+    body: JSON.stringify({ date: inForceDate, odometer_reading: 84000, mileage_per_year: 12000 }),
   })
   await request(`/cars/${carId}/insurance-reports`, {
     method: 'POST',
