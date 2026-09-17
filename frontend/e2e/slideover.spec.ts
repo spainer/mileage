@@ -78,26 +78,6 @@ async function openSlideover(page: Page, plate: string) {
   return page.getByRole('dialog')
 }
 
-function swipe(page: Page, { startX, startY, dx, dy }: { startX: number; startY: number; dx: number; dy: number }) {
-  return page.evaluate(
-    ({ startX, startY, dx, dy }) => {
-      const target = document.body
-      const start = new Touch({ identifier: 1, target, clientX: startX, clientY: startY })
-      const end = new Touch({ identifier: 1, target, clientX: startX + dx, clientY: startY + dy })
-      window.dispatchEvent(
-        new TouchEvent('touchstart', { touches: [start], bubbles: true, cancelable: true }),
-      )
-      window.dispatchEvent(
-        new TouchEvent('touchmove', { touches: [end], bubbles: true, cancelable: true }),
-      )
-      window.dispatchEvent(
-        new TouchEvent('touchend', { changedTouches: [end], bubbles: true, cancelable: true }),
-      )
-    },
-    { startX, startY, dx, dy },
-  )
-}
-
 test.beforeEach(async () => {
   await wipeCars()
   await seed()
@@ -117,6 +97,14 @@ test('clicking a card opens the slideover with the plate as title and the car la
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('M - AB 1234')).toBeVisible()
   await expect(dialog.getByText('Volkswagen Golf')).toBeVisible()
+})
+
+test('opening a card pushes the car\'s URL', async ({ page }) => {
+  await page.goto('/')
+
+  await page.locator('[role="button"]', { hasText: 'M - AB 1234' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page).toHaveURL(`/cars/${carId}`)
 })
 
 test('lists the mileage records newest first with the Latest summary and Since last deltas', async ({
@@ -197,39 +185,11 @@ test('renders the lists as card lists on small screens', async ({ page }) => {
   await expect(insuranceCards.getByText('In force')).toBeVisible()
 })
 
-test('closes on a left-edge swipe and leaves the wall unchanged', async ({ page }) => {
+test('closes with Escape and returns to the garage address', async ({ page }) => {
   await page.goto('/')
 
   const dialog = await openSlideover(page, 'M - AB 1234')
-  await expect(dialog).toBeVisible()
-
-  await swipe(page, { startX: 5, startY: 400, dx: 80, dy: 0 })
-  await expect(dialog).toBeHidden()
-
-  const card = page.locator('[role="button"]', { hasText: 'M - AB 1234' })
-  await expect(card).toBeVisible()
-  await expect(card).toContainText(`${formatKm(101400)} km`)
-
-  await card.click()
-  await expect(dialog).toBeVisible()
-})
-
-test('ignores swipes that start away from the left edge or are not horizontal', async ({ page }) => {
-  await page.goto('/')
-
-  const dialog = await openSlideover(page, 'M - AB 1234')
-
-  await swipe(page, { startX: 200, startY: 400, dx: 80, dy: 0 })
-  await expect(dialog).toBeVisible()
-
-  await swipe(page, { startX: 5, startY: 400, dx: 10, dy: 120 })
-  await expect(dialog).toBeVisible()
-})
-
-test('still closes with the usual affordances', async ({ page }) => {
-  await page.goto('/')
-
-  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(page).toHaveURL(`/cars/${carId}`)
 
   await page.waitForFunction(() => {
     const d = document.querySelector('[role="dialog"]')
@@ -237,10 +197,43 @@ test('still closes with the usual affordances', async ({ page }) => {
   })
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL('/')
+})
 
-  await page.locator('[role="button"]', { hasText: 'M - AB 1234' }).click()
-  await expect(dialog).toBeVisible()
+test('closes with a backdrop click and returns to the garage address', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(page).toHaveURL(`/cars/${carId}`)
 
   await page.mouse.click(100, 400)
   await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL('/')
+})
+
+test('native browser back closes the slideover and returns to the garage', async ({ page }) => {
+  await page.goto('/')
+  await openSlideover(page, 'M - AB 1234')
+  await expect(page).toHaveURL(`/cars/${carId}`)
+
+  await page.goBack()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page).toHaveURL('/')
+})
+
+test('a deep link to a known car opens the slideover', async ({ page }) => {
+  await page.goto(`/cars/${carId}`)
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('M - AB 1234')).toBeVisible()
+})
+
+test('a deep link to an unknown car shows the garage with the slideover closed', async ({ page }) => {
+  await page.goto('/cars/999999')
+
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.locator('[role="button"]', { hasText: 'M - AB 1234' })).toBeVisible()
+  await expect(page.locator('[role="button"]', { hasText: 'M - GC 4821' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '+ Add car' })).toBeVisible()
 })

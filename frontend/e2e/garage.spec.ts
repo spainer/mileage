@@ -306,6 +306,7 @@ test.describe('Garage', () => {
     await expect(confirmDialog).toBeHidden()
     await expect(editModal).toBeHidden()
     await expect(slideover).toBeHidden()
+    await expect(page).toHaveURL('/')
     await expect(cardFor(page, createdLicense)).toBeHidden()
   })
 })

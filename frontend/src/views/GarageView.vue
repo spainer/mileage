@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import CarFormModal from '../components/CarFormModal.vue'
 import CarSlideover from '../components/CarSlideover.vue'
@@ -19,6 +20,9 @@ import {
 } from '../state'
 import type { Car } from '../types'
 
+const route = useRoute()
+const router = useRouter()
+
 onMounted(() => {
   void load()
 })
@@ -37,13 +41,24 @@ const cards = computed(() =>
   })),
 )
 
-const selectedCarId = ref<number | null>(null)
+function parseCarId(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null
+  const parsed = Number(raw)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+const selectedCarId = computed(() => parseCarId(route.params.id))
 const selectedCar = computed(() => carById(selectedCarId.value) ?? null)
+watch(selectedCar, (car) => {
+  if (selectedCarId.value !== null && car === null) {
+    void router.replace('/')
+  }
+})
 
 const addFormOpen = ref(false)
 
 function openCar(car: Car) {
-  selectedCarId.value = car.id
+  void router.push(`/cars/${car.id}`)
 }
 
 function openAddCar() {
@@ -51,7 +66,16 @@ function openAddCar() {
 }
 
 function onCarDeleted() {
-  selectedCarId.value = null
+  void router.replace('/')
+}
+
+function onSlideoverClose() {
+  const state = window.history.state as { back?: string | null } | null
+  if (state?.back) {
+    router.back()
+  } else {
+    void router.push('/')
+  }
 }
 </script>
 
@@ -132,7 +156,7 @@ function onCarDeleted() {
       </div>
     </template>
 
-    <CarSlideover :car="selectedCar" @close="selectedCarId = null" @car-deleted="onCarDeleted" />
+    <CarSlideover :car="selectedCar" @close="onSlideoverClose" @car-deleted="onCarDeleted" />
 
     <CarFormModal
       :open="addFormOpen"

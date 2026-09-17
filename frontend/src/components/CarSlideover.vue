@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
 import { carLabel } from '../format'
 import type { Car } from '../types'
@@ -16,56 +16,22 @@ function openEdit() {
   editOpen.value = true
 }
 
-const SWIPE_EDGE = 40
-const SWIPE_DISTANCE = 60
-let swipeCleanup: (() => void) | null = null
-
 function onOpenChange(value: boolean) {
-  if (!value) {
+  if (!value && props.car !== null) {
     emit('close')
   }
 }
 
-function installSwipeClose() {
-  let startX = 0
-  let startY = 0
-  let active = false
-
-  const onTouchStart = (event: TouchEvent) => {
-    const touch = event.touches[0]
-    active = touch.clientX <= SWIPE_EDGE
-    startX = touch.clientX
-    startY = touch.clientY
-  }
-
-  const onTouchEnd = (event: TouchEvent) => {
-    if (!active) return
-    active = false
-    const touch = event.changedTouches[0]
-    const dx = touch.clientX - startX
-    const dy = touch.clientY - startY
-    if (dx >= SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      emit('close')
-    }
-  }
-
-  window.addEventListener('touchstart', onTouchStart, { passive: true })
-  window.addEventListener('touchend', onTouchEnd, { passive: true })
-  return () => {
-    window.removeEventListener('touchstart', onTouchStart)
-    window.removeEventListener('touchend', onTouchEnd)
-  }
+function onCarDeleted(carId: number) {
+  emit('car-deleted', carId)
 }
 
 watch(
-  () => props.car !== null,
-  (open) => {
-    swipeCleanup?.()
-    swipeCleanup = open ? installSwipeClose() : null
-    if (!open) editOpen.value = false
+  () => props.car,
+  (car) => {
+    if (!car) editOpen.value = false
   },
 )
-onUnmounted(() => swipeCleanup?.())
 </script>
 
 <template>
@@ -98,6 +64,6 @@ onUnmounted(() => swipeCleanup?.())
     :open="editOpen"
     :car="car"
     @update:open="editOpen = $event"
-    @car-deleted="(carId) => emit('car-deleted', carId)"
+    @car-deleted="onCarDeleted"
   />
 </template>
