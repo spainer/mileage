@@ -41,3 +41,4 @@ _Avoid_: limit, allowance, quota
 - A **Mileage Record** and an **Insurance Report** belong to exactly one **Car**.
 - When a **Car** ceases to exist, its **Mileage Records** and **Insurance Reports** cease with it.
 - An **Insurance Report**'s **Annual Mileage Cap** governs driving for the interval from its date until the next **Insurance Report** takes over.
+- The **Odometer Reading** of a **Car**'s entries never decreases over time: an entry's reading is at least as high as every entry dated before it, no higher than every entry dated after it, and exactly equal to every entry sharing its date. The **Car**'s **Mileage Records** and **Insurance Reports** are considered together for this rule.
