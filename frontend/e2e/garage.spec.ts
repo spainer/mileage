@@ -121,6 +121,7 @@ test.describe('Garage', () => {
     await slideover.getByRole('button', { name: 'Add reading' }).click()
     const recordModal = page.getByRole('dialog', { name: 'Add reading' })
     await expect(recordModal).toBeVisible()
+    await expect(recordModal.getByRole('button', { name: 'Delete' })).toHaveCount(0)
     recordDate = await recordModal.getByLabel('Date').inputValue()
     await recordModal.getByLabel('Odometer reading (km)').fill(String(READING))
     await recordModal.getByRole('button', { name: 'Add reading' }).click()
@@ -137,6 +138,7 @@ test.describe('Garage', () => {
     await slideover.getByRole('button', { name: 'Add report' }).click()
     const reportModal = page.getByRole('dialog', { name: 'Add report' })
     await expect(reportModal).toBeVisible()
+    await expect(reportModal.getByRole('button', { name: 'Delete' })).toHaveCount(0)
     reportDate = await reportModal.getByLabel('Date').inputValue()
     await expect(reportModal.getByLabel('Odometer reading (km)')).toHaveValue(String(READING))
     await reportModal.getByLabel('Annual mileage cap (km/year)').fill(String(ANNUAL_MILEAGE_CAP))
@@ -174,6 +176,63 @@ test.describe('Garage', () => {
     await expect(card.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
     await expect(card).toContainText('1 reading')
     await expect(card).toContainText('1 report')
+  })
+
+  test('deletes the mileage record from the edit modal after confirmation', async ({ page }) => {
+    await page.goto('/')
+    const slideover = await openSlideover(page, createdLicense)
+    await expect(slideover).toBeVisible()
+
+    const recordRow = slideover.locator('tbody tr')
+    await expect(recordRow).toHaveCount(1)
+    await expect(slideover.getByRole('button', { name: 'Delete reading' })).toHaveCount(0)
+
+    await recordRow.getByRole('button', { name: 'Edit reading' }).click()
+    const editModal = page.getByRole('dialog', { name: 'Edit reading' })
+    await expect(editModal).toBeVisible()
+
+    await editModal.getByRole('button', { name: 'Delete' }).click()
+    const confirmDialog = page.getByRole('dialog', { name: 'Delete reading' })
+    await expect(confirmDialog).toBeVisible()
+    await expect(confirmDialog).toContainText(
+      `This deletes the reading of ${formatKm(READING)} km on ${formatDate(recordDate)}.`,
+    )
+
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click()
+
+    await expect(confirmDialog).toBeHidden()
+    await expect(editModal).toBeHidden()
+    await expect(slideover.getByText('No mileage readings yet.').first()).toBeVisible()
+    await expect(slideover.getByText('No readings yet')).toBeVisible()
+  })
+
+  test('deletes the insurance report from the edit modal after confirmation', async ({ page }) => {
+    await page.goto('/')
+    const slideover = await openSlideover(page, createdLicense)
+    await expect(slideover).toBeVisible()
+
+    await slideover.getByRole('tab', { name: 'Insurance' }).click()
+    const reportRow = slideover.locator('tbody tr')
+    await expect(reportRow).toHaveCount(1)
+    await expect(slideover.getByRole('button', { name: 'Delete report' })).toHaveCount(0)
+
+    await reportRow.getByRole('button', { name: 'Edit report' }).click()
+    const editModal = page.getByRole('dialog', { name: 'Edit report' })
+    await expect(editModal).toBeVisible()
+
+    await editModal.getByRole('button', { name: 'Delete' }).click()
+    const confirmDialog = page.getByRole('dialog', { name: 'Delete report' })
+    await expect(confirmDialog).toBeVisible()
+    await expect(confirmDialog).toContainText(
+      `This deletes the report of ${formatKm(ANNUAL_MILEAGE_CAP)} km/year on ${formatDate(reportDate)}.`,
+    )
+
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click()
+
+    await expect(confirmDialog).toBeHidden()
+    await expect(editModal).toBeHidden()
+    await expect(slideover.getByText('No insurance reports yet.').first()).toBeVisible()
+    await expect(slideover.getByText('no report yet')).toBeVisible()
   })
 
   test('deletes the car from the edit modal after confirmation', async ({ page }) => {

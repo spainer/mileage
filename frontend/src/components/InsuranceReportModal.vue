@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 
-import { errorMessage, todayIso } from '../format'
-import { createInsuranceReport, latestRecord, updateInsuranceReport } from '../state'
+import { useConfirm } from '../composables/useConfirm'
+import { errorMessage, formatDate, formatKm, todayIso } from '../format'
+import { createInsuranceReport, deleteInsuranceReport, latestRecord, updateInsuranceReport } from '../state'
 import type { Car, InsuranceReport } from '../types'
 
 const props = defineProps<{
@@ -18,6 +19,9 @@ const emit = defineEmits<{
 const form = reactive({ date: '', odometerReading: '', mileagePerYear: '' })
 const error = ref('')
 const saving = ref(false)
+const deleting = ref(false)
+
+const { confirm } = useConfirm()
 
 watch(
   () => props.open,
@@ -25,6 +29,7 @@ watch(
     if (!open) return
     error.value = ''
     saving.value = false
+    deleting.value = false
     if (props.report) {
       form.date = props.report.date
       form.odometerReading = String(props.report.odometerReading)
@@ -81,6 +86,27 @@ function save() {
       saving.value = false
     })
 }
+
+async function remove() {
+  const report = props.report
+  if (!report || deleting.value) return
+  const confirmed = await confirm({
+    title: 'Delete report',
+    message: `This deletes the report of ${formatKm(report.mileagePerYear)} km/year on ${formatDate(report.date)}.`,
+    confirmLabel: 'Delete',
+  })
+  if (!confirmed) return
+  deleting.value = true
+  error.value = ''
+  try {
+    await deleteInsuranceReport(props.car.id, report.id)
+    close()
+  } catch (err) {
+    error.value = errorMessage(err)
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -108,11 +134,21 @@ function save() {
     </template>
     <template #footer>
       <div class="flex w-full items-center gap-2">
+        <UButton
+          v-if="report"
+          color="error"
+          variant="ghost"
+          icon="i-lucide-trash-2"
+          :disabled="saving || deleting"
+          @click="remove"
+        >
+          Delete
+        </UButton>
         <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="close">
           Cancel
         </UButton>
-        <UButton color="primary" :disabled="saving" @click="save">
+        <UButton color="primary" :disabled="saving || deleting" @click="save">
           {{ report ? 'Save' : 'Add report' }}
         </UButton>
       </div>
