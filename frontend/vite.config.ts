@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import ui from '@nuxt/ui/vite'
 
 export default defineConfig({
-  plugins: [vue(), ui()],
+  plugins: [vue(), ui({ ui: { colors: { primary: 'blue' } }, colorMode: false })],
   resolve: {
     alias: {
        '@': fileURLToPath(new URL('./src', import.meta.url)),
