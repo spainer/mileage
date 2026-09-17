@@ -112,6 +112,21 @@ test.describe('Garage', () => {
     await expect(slideover).toContainText('Toyota Yaris')
   })
 
+  test('shows live license validation error before submit', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '+ Add car' }).click()
+    const modal = page.getByRole('dialog', { name: 'Add car' })
+    await expect(modal).toBeVisible()
+
+    await modal.getByLabel('Manufacturer').fill('Toyota')
+    await modal.getByLabel('Model').fill('Yaris')
+    await modal.getByLabel('License').fill('NOT-A-PLATE')
+    await expect(modal.getByText('License must be a valid German license (e.g. M-AB1234).')).toBeVisible()
+
+    await modal.getByLabel('License').fill('M-AB1234')
+    await expect(modal.getByText('License must be a valid German license (e.g. M-AB1234).')).toBeHidden()
+  })
+
   test('adds a mileage record and an insurance report through the modals', async ({ page }) => {
     await page.goto('/')
     const slideover = await openSlideover(page, createdLicense)

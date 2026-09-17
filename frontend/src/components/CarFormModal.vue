@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const form = reactive({ manufacturer: '', model: '', license: '' })
 const error = ref('')
+const licenseError = ref<string | undefined>(undefined)
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -29,6 +30,7 @@ watch(
   (open) => {
     if (!open) return
     error.value = ''
+    licenseError.value = undefined
     saving.value = false
     deleting.value = false
     if (props.car) {
@@ -39,6 +41,22 @@ watch(
       form.manufacturer = ''
       form.model = ''
       form.license = ''
+    }
+  },
+)
+
+watch(
+  () => form.license,
+  (license) => {
+    if (!license) {
+      licenseError.value = undefined
+      return
+    }
+    const normalized = normalizeLicense(license)
+    if (!isValidLicense(normalized)) {
+      licenseError.value = 'License must be a valid German license (e.g. M-AB1234).'
+    } else {
+      licenseError.value = undefined
     }
   },
 )
@@ -127,7 +145,7 @@ async function remove() {
         <UFormField label="Model">
           <UInput v-model="form.model" placeholder="Golf" />
         </UFormField>
-        <UFormField label="License">
+        <UFormField label="License" :error="licenseError">
           <UInput v-model="form.license" placeholder="M-AB 1234" class="font-mono" />
         </UFormField>
       </form>
