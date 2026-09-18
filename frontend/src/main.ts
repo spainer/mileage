@@ -12,7 +12,12 @@ const router = createRouter({
       name: 'garage',
       component: () => import('./views/GarageView.vue'),
     },
-   ],
+    {
+      path: '/cars/:id',
+      name: 'car',
+      component: () => import('./views/GarageView.vue'),
+    },
+  ],
   history: createWebHistory(),
 })
 
