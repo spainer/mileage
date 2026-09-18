@@ -18,6 +18,7 @@ body,
 #app {
   margin: 0;
   padding: 0;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 </style>

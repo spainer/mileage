@@ -80,7 +80,7 @@ function onSlideoverClose() {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl p-4 lg:p-8">
+  <div class="mx-auto h-full w-full max-w-5xl overflow-y-auto p-4 lg:p-8">
     <header class="mb-6">
       <h1 class="text-2xl font-semibold tracking-tight">Garage</h1>
       <p class="text-sm text-muted">Every car at a glance.</p>
