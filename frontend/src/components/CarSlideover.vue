@@ -39,7 +39,7 @@ watch(
     :open="car !== null"
     :close="false"
     :description="car ? carLabel(car) : ''"
-    class="w-full max-w-lg"
+    class="w-full max-w-lg pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
     @update:open="onOpenChange"
   >
     <template v-if="car" #title>
