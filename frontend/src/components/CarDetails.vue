@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import { useConfirm } from '../composables/useConfirm'
-import { evaluationLabel, errorMessage, formatDate, formatKm } from '../format'
+import { evaluationLabel, formatDate, formatKm } from '../format'
 import {
   currentReport,
-  deleteInsuranceReport,
-  deleteMileageRecord,
   latestRecord,
   mileageRowsForCar,
   reportsForCar,
@@ -27,15 +24,9 @@ const inForce = computed(() => currentReport(props.car.id))
 
 const recordModalOpen = ref(false)
 const editingRecord = ref<MileageRecord | null>(null)
-const deletingRecordId = ref<number | null>(null)
-const deleteError = ref('')
 
 const reportModalOpen = ref(false)
 const editingReport = ref<InsuranceReport | null>(null)
-const deletingReportId = ref<number | null>(null)
-const reportDeleteError = ref('')
-
-const { confirm } = useConfirm()
 
 const rightAligned = { class: { th: 'text-right', td: 'text-right' } }
 
@@ -68,25 +59,6 @@ function openEditRecord(record: MileageRecord) {
   recordModalOpen.value = true
 }
 
-async function removeRecord(record: MileageRecord) {
-  if (deletingRecordId.value !== null) return
-  const confirmed = await confirm({
-    title: 'Delete reading',
-    message: `This deletes the reading of ${formatKm(record.odometerReading)} km on ${formatDate(record.date)}.`,
-    confirmLabel: 'Delete',
-  })
-  if (!confirmed) return
-  deletingRecordId.value = record.id
-  deleteError.value = ''
-  try {
-    await deleteMileageRecord(props.car.id, record.id)
-  } catch (err) {
-    deleteError.value = errorMessage(err)
-  } finally {
-    deletingRecordId.value = null
-  }
-}
-
 function openAddReport() {
   editingReport.value = null
   reportModalOpen.value = true
@@ -95,25 +67,6 @@ function openAddReport() {
 function openEditReport(report: InsuranceReport) {
   editingReport.value = report
   reportModalOpen.value = true
-}
-
-async function removeReport(report: InsuranceReport) {
-  if (deletingReportId.value !== null) return
-  const confirmed = await confirm({
-    title: 'Delete report',
-    message: `This deletes the report of ${formatKm(report.mileagePerYear)} km/year on ${formatDate(report.date)}.`,
-    confirmLabel: 'Delete',
-  })
-  if (!confirmed) return
-  deletingReportId.value = report.id
-  reportDeleteError.value = ''
-  try {
-    await deleteInsuranceReport(props.car.id, report.id)
-  } catch (err) {
-    reportDeleteError.value = errorMessage(err)
-  } finally {
-    deletingReportId.value = null
-  }
 }
 </script>
 
@@ -138,14 +91,6 @@ async function removeReport(report: InsuranceReport) {
           <UButton size="sm" color="primary" icon="i-lucide-plus" @click="openAddRecord">
             Add reading
           </UButton>
-        </div>
-
-        <div
-          v-if="deleteError"
-          class="rounded-lg bg-error/10 px-3 py-2 text-sm text-error"
-          role="alert"
-        >
-          {{ deleteError }}
         </div>
 
         <div class="hidden md:block">
@@ -178,24 +123,14 @@ async function removeReport(report: InsuranceReport) {
               </span>
             </template>
             <template #actions-cell="{ row }">
-              <div class="flex justify-end gap-1">
+              <div class="flex justify-end">
                 <UButton
                   size="xs"
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
                   aria-label="Edit reading"
-                  :disabled="deletingRecordId !== null"
                   @click="openEditRecord(row.original)"
-                />
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-trash-2"
-                  aria-label="Delete reading"
-                  :disabled="deletingRecordId !== null"
-                  @click="removeRecord(row.original)"
                 />
               </div>
             </template>
@@ -226,24 +161,14 @@ async function removeReport(report: InsuranceReport) {
                   </span>
                 </p>
               </div>
-              <div class="flex shrink-0 gap-1">
+              <div class="flex shrink-0">
                 <UButton
                   size="xs"
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
                   aria-label="Edit reading"
-                  :disabled="deletingRecordId !== null"
                   @click="openEditRecord(row)"
-                />
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-trash-2"
-                  aria-label="Delete reading"
-                  :disabled="deletingRecordId !== null"
-                  @click="removeRecord(row)"
                 />
               </div>
             </div>
@@ -273,14 +198,6 @@ async function removeReport(report: InsuranceReport) {
           </UButton>
         </div>
 
-        <div
-          v-if="reportDeleteError"
-          class="rounded-lg bg-error/10 px-3 py-2 text-sm text-error"
-          role="alert"
-        >
-          {{ reportDeleteError }}
-        </div>
-
         <div class="hidden md:block">
           <UTable v-if="reports.length" :data="reports" :columns="reportColumns">
             <template #date-cell="{ row }">
@@ -307,24 +224,14 @@ async function removeReport(report: InsuranceReport) {
               </div>
             </template>
             <template #actions-cell="{ row }">
-              <div class="flex justify-end gap-1">
+              <div class="flex justify-end">
                 <UButton
                   size="xs"
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
                   aria-label="Edit report"
-                  :disabled="deletingReportId !== null"
                   @click="openEditReport(row.original)"
-                />
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-trash-2"
-                  aria-label="Delete report"
-                  :disabled="deletingReportId !== null"
-                  @click="removeReport(row.original)"
                 />
               </div>
             </template>
@@ -356,24 +263,14 @@ async function removeReport(report: InsuranceReport) {
                   {{ formatDate(row.date) }} · at {{ formatKm(row.odometerReading) }} km
                 </p>
               </div>
-              <div class="flex shrink-0 gap-1">
+              <div class="flex shrink-0">
                 <UButton
                   size="xs"
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
                   aria-label="Edit report"
-                  :disabled="deletingReportId !== null"
                   @click="openEditReport(row)"
-                />
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-trash-2"
-                  aria-label="Delete report"
-                  :disabled="deletingReportId !== null"
-                  @click="removeReport(row)"
                 />
               </div>
             </div>

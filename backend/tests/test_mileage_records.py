@@ -161,9 +161,9 @@ def test_list_mileage_records_includes_evaluation(client):
     car = create_car(client)
     create_report(
         client, car["id"], day="2026-01-01", odometer_reading=1000,
-        mileage_per_year=15000,
+        mileage_per_year=0,
     )
-    create_record(client, car["id"], day="2026-01-01", odometer_reading=1500)
+    create_record(client, car["id"], day="2026-01-02", odometer_reading=1500)
 
     response = client.get(f"/api/cars/{car['id']}/mileage-records")
 
@@ -178,7 +178,7 @@ def test_mileage_record_evaluation_is_null_before_first_report(client):
         client, car["id"], day="2026-03-01", odometer_reading=1000,
         mileage_per_year=15000,
     )
-    create_record(client, car["id"], day="2026-01-15", odometer_reading=1500)
+    create_record(client, car["id"], day="2026-01-15", odometer_reading=900)
 
     response = client.get(f"/api/cars/{car['id']}/mileage-records")
 
@@ -191,10 +191,10 @@ def test_get_mileage_record_includes_evaluation(client):
     car = create_car(client)
     create_report(
         client, car["id"], day="2026-01-01", odometer_reading=1000,
-        mileage_per_year=15000,
+        mileage_per_year=0,
     )
     created = create_record(
-        client, car["id"], day="2026-01-01", odometer_reading=1500
+        client, car["id"], day="2026-01-02", odometer_reading=1500
     ).json()
 
     response = client.get(f"/api/cars/{car['id']}/mileage-records/{created['id']}")
@@ -352,3 +352,157 @@ def test_deleting_car_removes_its_mileage_records(client, db_url):
         ).scalar_one()
     engine.dispose()
     assert rows == 0
+
+
+def test_create_mileage_record_rejects_below_prior(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2026-01-15", odometer_reading=1000)
+
+    response = create_record(
+        client, car["id"], day="2026-06-01", odometer_reading=999
+    )
+
+    assert response.status_code == 409
+    assert "1,000" in response.json()["detail"]
+
+
+def test_create_mileage_record_accepts_equal_to_prior(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2026-01-15", odometer_reading=1000)
+
+    response = create_record(
+        client, car["id"], day="2026-06-01", odometer_reading=1000
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_mileage_record_rejects_above_later(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2026-06-01", odometer_reading=2000)
+
+    response = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=2001
+    )
+
+    assert response.status_code == 409
+    assert "2,000" in response.json()["detail"]
+
+
+def test_create_mileage_record_accepts_equal_to_later(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2026-06-01", odometer_reading=2000)
+
+    response = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=2000
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_mileage_record_rejects_same_date_mismatch(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2026-01-15", odometer_reading=1500)
+
+    response = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=1501
+    )
+
+    assert response.status_code == 409
+    assert "1,500" in response.json()["detail"]
+
+
+def test_create_mileage_record_rejects_outside_bounds(client):
+    car = create_car(client)
+    create_record(client, car["id"], day="2025-06-01", odometer_reading=1000)
+    create_record(client, car["id"], day="2026-06-01", odometer_reading=3000)
+
+    too_low = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=999
+    )
+    too_high = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=3001
+    )
+    just_right = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=2000
+    )
+
+    assert too_low.status_code == 409
+    assert too_high.status_code == 409
+    assert just_right.status_code == 201
+
+
+def test_create_mileage_record_entries_of_other_cars_do_not_constrain(client):
+    car = create_car(client)
+    other = create_car(client, license="B-KW4567")
+    create_record(client, other["id"], day="2026-06-01", odometer_reading=10000)
+
+    response = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=0
+    )
+
+    assert response.status_code == 201
+
+
+def test_update_mileage_record_excludes_self_from_validation(client):
+    car = create_car(client)
+    record = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=1000
+    ).json()
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/mileage-records/{record['id']}",
+        json={"odometer_reading": 1001},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["odometer_reading"] == 1001
+
+
+def test_update_mileage_record_respects_other_entries(client):
+    car = create_car(client)
+    record = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=1500
+    ).json()
+    create_record(client, car["id"], day="2026-06-01", odometer_reading=2000)
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/mileage-records/{record['id']}",
+        json={"odometer_reading": 2001},
+    )
+
+    assert response.status_code == 409
+    assert "2,000" in response.json()["detail"]
+
+
+def test_update_mileage_record_can_move_into_range(client):
+    car = create_car(client)
+    record = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=1500
+    ).json()
+    create_record(client, car["id"], day="2026-06-01", odometer_reading=2000)
+
+    response = client.patch(
+        f"/api/cars/{car['id']}/mileage-records/{record['id']}",
+        json={"odometer_reading": 1999},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["odometer_reading"] == 1999
+
+
+def test_create_mileage_record_constrained_by_insurance_report(client):
+    from tests.test_insurance_reports import create_report
+
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2025-06-01", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+
+    response = create_record(
+        client, car["id"], day="2026-01-15", odometer_reading=999
+    )
+
+    assert response.status_code == 409
+    assert "1,000" in response.json()["detail"]

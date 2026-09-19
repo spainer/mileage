@@ -1,3 +1,5 @@
+import datetime
+
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.status_codes import HTTP_409_CONFLICT
 from pydantic import BaseModel
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import models
 from src.evaluation import evaluate_record, evaluate_records, evaluate_today
+from src.odometer_sequence import fetch_entries_for_car, validate as validate_sequence
 from src.schemas import (
     Car,
     CarCreate,
@@ -19,6 +22,20 @@ from src.schemas import (
     MileageRecordUpdate,
     TodayEvaluation,
 )
+
+
+async def _enforce_sequence(
+    session: AsyncSession,
+    car_id: int,
+    *,
+    date_: datetime.date,
+    odometer_reading: int,
+    exclude: tuple[int, str] | None = None,
+) -> None:
+    entries = await fetch_entries_for_car(session, car_id, exclude=exclude)
+    message = validate_sequence(entries, date_, odometer_reading)
+    if message is not None:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=message)
 
 
 async def get_car_or_404(session: AsyncSession, car_id: int) -> models.Car:
@@ -140,6 +157,12 @@ class MileageRecordRepository:
 
     async def create(self, car_id: int, data: MileageRecordCreate) -> MileageRecord:
         await get_car_or_404(self._session, car_id)
+        await _enforce_sequence(
+            self._session,
+            car_id,
+            date_=data.date,
+            odometer_reading=data.odometer_reading,
+        )
         record = models.MileageRecord(
             car_id=car_id,
             date=data.date,
@@ -155,6 +178,13 @@ class MileageRecordRepository:
     ) -> MileageRecord:
         record = await self._get_record_or_404(car_id, record_id)
         _apply_updates(record, data)
+        await _enforce_sequence(
+            self._session,
+            car_id,
+            date_=record.date,
+            odometer_reading=record.odometer_reading,
+            exclude=(record.id, "record"),
+        )
         await self._session.commit()
         reports = await self._reports_for(car_id)
         return MileageRecord.from_orm(record, evaluate_record(record, reports))
@@ -194,6 +224,12 @@ class InsuranceReportRepository:
 
     async def create(self, car_id: int, data: InsuranceReportCreate) -> InsuranceReport:
         await get_car_or_404(self._session, car_id)
+        await _enforce_sequence(
+            self._session,
+            car_id,
+            date_=data.date,
+            odometer_reading=data.odometer_reading,
+        )
         report = models.InsuranceReport(
             car_id=car_id,
             date=data.date,
@@ -209,6 +245,13 @@ class InsuranceReportRepository:
     ) -> InsuranceReport:
         report = await self._get_report_or_404(car_id, report_id)
         _apply_updates(report, data)
+        await _enforce_sequence(
+            self._session,
+            car_id,
+            date_=report.date,
+            odometer_reading=report.odometer_reading,
+            exclude=(report.id, "report"),
+        )
         await self._session.commit()
         return InsuranceReport.from_orm(report)
 

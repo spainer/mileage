@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 
 def create_car(client, license: str = "M-AB1234") -> dict:
@@ -35,10 +35,16 @@ def create_report(
 
 
 def test_get_today_evaluation_for_car_with_report_and_records(client):
-    today = date.today().isoformat()
+    today = date.today()
     car = create_car(client)
-    create_report(client, car["id"], today, odometer_reading=1000, mileage_per_year=15000)
-    create_record(client, car["id"], today, odometer_reading=1500)
+    create_report(
+        client,
+        car["id"],
+        (today - timedelta(days=1)).isoformat(),
+        odometer_reading=1000,
+        mileage_per_year=0,
+    )
+    create_record(client, car["id"], today.isoformat(), odometer_reading=1500)
 
     response = client.get(f"/api/cars/{car['id']}/evaluation")
 

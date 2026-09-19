@@ -10,6 +10,7 @@ import {
   type UpdateMileageRecordInput,
 } from './api/client'
 import { todayIso } from './format'
+import type { OdometerEntry } from './odometerSequence'
 import type { Car, InsuranceReport, MileageRecord, TodayEvaluation } from './types'
 
 export const cars = ref<Car[]>([])
@@ -150,6 +151,36 @@ export function recordsForCar(carId: number): MileageRecord[] {
 
 export function reportsForCar(carId: number): InsuranceReport[] {
   return byCar(insuranceReports.value, carId)
+}
+
+export type SequenceEntry =
+  | (MileageRecord & { kind: 'record' })
+  | (InsuranceReport & { kind: 'report' })
+
+export function entriesForCar(
+  carId: number,
+  excludeId?: number,
+): OdometerEntry[] {
+  const out: OdometerEntry[] = []
+  for (const record of mileageRecords.value) {
+    if (record.carId !== carId) continue
+    if (excludeId !== undefined && record.id === excludeId) continue
+    out.push({
+      id: record.id,
+      date: record.date,
+      odometerReading: record.odometerReading,
+    })
+  }
+  for (const report of insuranceReports.value) {
+    if (report.carId !== carId) continue
+    if (excludeId !== undefined && report.id === excludeId) continue
+    out.push({
+      id: report.id,
+      date: report.date,
+      odometerReading: report.odometerReading,
+    })
+  }
+  return out
 }
 
 export function carById(id: number | null): Car | undefined {

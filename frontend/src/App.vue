@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import { useIosSwipeBackPatch } from './composables/useIosSwipeBackPatch'
+
+useIosSwipeBackPatch()
 </script>
 
 <template>
@@ -15,6 +18,11 @@ body,
 #app {
   margin: 0;
   padding: 0;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#app {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 </style>

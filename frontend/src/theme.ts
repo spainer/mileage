@@ -15,7 +15,6 @@ export const theme = {
 }
 
 export function applyTheme() {
-  localStorage.setItem('vueuse-color-scheme', 'dark')
   const root = document.documentElement
   for (const [key, value] of Object.entries(theme.vars)) {
     root.style.setProperty(key, value)
