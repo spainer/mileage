@@ -28,14 +28,38 @@ const reportsByCar: Record<number, unknown[]> = {
   2: [{ id: 41, car_id: 2, date: todayIso(), odometer_reading: 42000, mileage_per_year: 8000 }],
 }
 
+const evaluationsByCar: Record<number, unknown | null> = {
+  1: { theoretical_limit: 100000, delta: 1400 },
+  2: { theoretical_limit: 42000, delta: -1000 },
+}
+
+function mockEvaluationRefresh(carId = 1): void {
+  fetchMock.mockResolvedValueOnce(jsonResponse(evaluationsByCar[carId]))
+}
+
+function expectEvaluationRefresh(carId = 1): void {
+  const call = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]
+  expect(call).toBeDefined()
+  const [url, init] = call!
+  expect(String(url)).toBe(`/api/cars/${carId}/evaluation`)
+  expect(init?.method ?? 'GET').toBe('GET')
+  const wire = evaluationsByCar[carId] as { theoretical_limit: number; delta: number | null } | null
+  expect(state.evaluations.value[carId]).toEqual(
+    wire === null ? null : { theoreticalLimit: wire.theoretical_limit, delta: wire.delta },
+  )
+}
+
 function route(url: string): Response {
   const normalized = String(url)
   if (normalized === '/api/cars') return jsonResponse(carsWire)
-  const match = normalized.match(/^\/api\/cars\/(\d+)\/(mileage-records|insurance-reports)$/)
+  const match = normalized.match(
+    /^\/api\/cars\/(\d+)\/(mileage-records|insurance-reports|evaluation)$/,
+  )
   if (match) {
     const carId = Number(match[1])
-    const body = match[2] === 'mileage-records' ? recordsByCar[carId] : reportsByCar[carId]
-    return jsonResponse(body)
+    if (match[2] === 'mileage-records') return jsonResponse(recordsByCar[carId])
+    if (match[2] === 'insurance-reports') return jsonResponse(reportsByCar[carId])
+    return jsonResponse(evaluationsByCar[carId])
   }
   throw new Error(`unexpected URL: ${normalized}`)
 }
@@ -46,6 +70,7 @@ beforeEach(() => {
   state.cars.value = []
   state.mileageRecords.value = []
   state.insuranceReports.value = []
+  state.evaluations.value = {}
   state.loading.value = false
   state.error.value = null
 })
@@ -63,8 +88,10 @@ describe('load', () => {
     const urls = fetchMock.mock.calls.map((call) => String(call[0])).sort()
     expect(urls).toEqual([
       '/api/cars',
+      '/api/cars/1/evaluation',
       '/api/cars/1/insurance-reports',
       '/api/cars/1/mileage-records',
+      '/api/cars/2/evaluation',
       '/api/cars/2/insurance-reports',
       '/api/cars/2/mileage-records',
     ])
@@ -96,6 +123,10 @@ describe('load', () => {
       { id: 32, carId: 1, date: '2027-01-01', odometerReading: 110000, mileagePerYear: 9999 },
       { id: 41, carId: 2, date: todayIso(), odometerReading: 42000, mileagePerYear: 8000 },
     ])
+    expect(state.evaluations.value).toEqual({
+      1: { theoreticalLimit: 100000, delta: 1400 },
+      2: { theoreticalLimit: 42000, delta: -1000 },
+    })
   })
 
   it('requests the per-car collections in parallel', async () => {
@@ -132,6 +163,7 @@ describe('load', () => {
     expect(state.cars.value).toEqual([])
     expect(state.mileageRecords.value).toEqual([])
     expect(state.insuranceReports.value).toEqual([])
+    expect(state.evaluations.value).toEqual({})
     expect(state.loading.value).toBe(false)
   })
 
@@ -233,6 +265,25 @@ describe('queries', () => {
     await state.load()
 
     expect(state.currentReport(9)).toBeUndefined()
+  })
+
+  it('returns the cached today evaluation for a car', async () => {
+    await loadState()
+
+    expect(state.evaluationForCar(1)).toEqual({ theoreticalLimit: 100000, delta: 1400 })
+  })
+
+  it('returns null as the cached today evaluation when a car has no reports', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url) === '/api/cars') {
+        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
+      }
+      if (String(url) === '/api/cars/9/evaluation') return jsonResponse(null)
+      return jsonResponse([])
+    })
+    await state.load()
+
+    expect(state.evaluationForCar(9)).toBeNull()
   })
 })
 
@@ -337,8 +388,12 @@ describe('car mutations', () => {
   })
 
   describe('deleteCar', () => {
-    it('sends a DELETE and removes the car with its mileage records and insurance reports', async () => {
+    it('sends a DELETE and removes the car with its mileage records, insurance reports, and evaluation', async () => {
       seedCar1()
+      state.evaluations.value = {
+        1: { theoreticalLimit: 1000, delta: 500 },
+        2: { theoreticalLimit: 2000, delta: null },
+      }
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
 
       await state.deleteCar(1)
@@ -354,6 +409,7 @@ describe('car mutations', () => {
       expect(state.insuranceReports.value).toEqual([
         { id: 41, carId: 2, date: '2025-03-10', odometerReading: 42000, mileagePerYear: 8000 },
       ])
+      expect(state.evaluations.value).toEqual({ 2: { theoreticalLimit: 2000, delta: null } })
     })
 
     it('propagates a 404 error and keeps the state unchanged', async () => {
@@ -396,6 +452,7 @@ describe('mileage record mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 13, car_id: 1, date: '2026-09-15', odometer_reading: 104300 }, 201),
       )
+      mockEvaluationRefresh()
 
       const record = await state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 })
 
@@ -405,6 +462,7 @@ describe('mileage record mutations', () => {
       expect(JSON.parse(String(init?.body))).toEqual({ date: '2026-09-15', odometer_reading: 104300 })
       expect(record).toEqual({ id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300 })
       expect(state.latestRecord(1)).toEqual({ id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300 })
+      expectEvaluationRefresh()
     })
 
     it('recomputes the deltas for the new row', async () => {
@@ -412,6 +470,7 @@ describe('mileage record mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 13, car_id: 1, date: '2026-09-15', odometer_reading: 104300 }, 201),
       )
+      mockEvaluationRefresh()
 
       await state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 })
 
@@ -481,6 +540,7 @@ describe('mileage record mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 12, car_id: 1, date: '2026-09-01', odometer_reading: 102000 }),
       )
+      mockEvaluationRefresh()
 
       const record = await state.updateMileageRecord(1, 12, { date: '2026-09-01', odometerReading: 102000 })
 
@@ -501,6 +561,7 @@ describe('mileage record mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 12, car_id: 1, date: '2026-08-30', odometer_reading: 80000 }),
       )
+      mockEvaluationRefresh()
 
       await state.updateMileageRecord(1, 12, { odometerReading: 80000 })
 
@@ -558,6 +619,7 @@ describe('mileage record mutations', () => {
     it('sends a DELETE and removes the record; the derived values follow', async () => {
       seedRecords()
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      mockEvaluationRefresh()
 
       await state.deleteMileageRecord(1, 12)
 
@@ -614,6 +676,7 @@ describe('insurance report mutations', () => {
           201,
         ),
       )
+      mockEvaluationRefresh()
 
       const report = await state.createInsuranceReport(1, {
         date: todayIso(),
@@ -641,6 +704,7 @@ describe('insurance report mutations', () => {
           201,
         ),
       )
+      mockEvaluationRefresh()
 
       await state.createInsuranceReport(1, { date: todayIso(), odometerReading: 105000, mileagePerYear: 10000 })
 
@@ -656,6 +720,7 @@ describe('insurance report mutations', () => {
           201,
         ),
       )
+      mockEvaluationRefresh()
 
       await state.createInsuranceReport(1, { date: '2027-06-01', odometerReading: 105000, mileagePerYear: 10000 })
 
@@ -700,6 +765,7 @@ describe('insurance report mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 31, car_id: 1, date: '2026-02-01', odometer_reading: 93400, mileage_per_year: 10000 }),
       )
+      mockEvaluationRefresh()
 
       const report = await state.updateInsuranceReport(1, 31, { mileagePerYear: 10000 })
 
@@ -721,6 +787,7 @@ describe('insurance report mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 31, car_id: 1, date: '2027-06-01', odometer_reading: 93400, mileage_per_year: 12000 }),
       )
+      mockEvaluationRefresh()
 
       await state.updateInsuranceReport(1, 31, { date: '2027-06-01' })
 
@@ -732,6 +799,7 @@ describe('insurance report mutations', () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 32, car_id: 1, date: '2026-08-01', odometer_reading: 110000, mileage_per_year: 9999 }),
       )
+      mockEvaluationRefresh()
 
       await state.updateInsuranceReport(1, 32, { date: '2026-08-01' })
 
@@ -787,6 +855,7 @@ describe('insurance report mutations', () => {
     it('sends a DELETE and removes the report; the in-force report falls back to the next older one', async () => {
       seedReports()
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      mockEvaluationRefresh()
 
       await state.deleteInsuranceReport(1, 31)
 
@@ -802,6 +871,7 @@ describe('insurance report mutations', () => {
     it('leaves the in-force report untouched when deleting another report', async () => {
       seedReports()
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      mockEvaluationRefresh()
 
       await state.deleteInsuranceReport(1, 32)
 
@@ -811,8 +881,10 @@ describe('insurance report mutations', () => {
     it('leaves no in-force report when the in-force report is deleted and only future ones remain', async () => {
       seedReports()
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      mockEvaluationRefresh()
       await state.deleteInsuranceReport(1, 30)
       fetchMock.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+      mockEvaluationRefresh()
 
       await state.deleteInsuranceReport(1, 31)
 

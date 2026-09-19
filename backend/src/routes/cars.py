@@ -5,7 +5,7 @@ from litestar.status_codes import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from src.database import provide_session
 from src.repositories import CarRepository
 from src.routes.dependencies import CarId, Session
-from src.schemas import Car, CarCreate, CarUpdate
+from src.schemas import Car, CarCreate, CarUpdate, TodayEvaluation
 
 
 @post("/", response_model=Car, status_code=HTTP_201_CREATED)
@@ -23,6 +23,13 @@ async def get_car(car_id: CarId, session: Session) -> Car:
     return await CarRepository(session).get(car_id)
 
 
+@get("/{car_id:int}/evaluation", response_model=TodayEvaluation | None)
+async def get_car_evaluation(
+    car_id: CarId, session: Session
+) -> TodayEvaluation | None:
+    return await CarRepository(session).evaluation(car_id)
+
+
 @patch("/{car_id:int}", response_model=Car)
 async def update_car(car_id: CarId, data: CarUpdate, session: Session) -> Car:
     return await CarRepository(session).update(car_id, data)
@@ -36,5 +43,12 @@ async def delete_car(car_id: CarId, session: Session) -> None:
 car_router = Router(
     path="/cars",
     dependencies={"session": Provide(provide_session)},
-    route_handlers=[create_car, list_cars, get_car, update_car, delete_car],
+    route_handlers=[
+        create_car,
+        list_cars,
+        get_car,
+        get_car_evaluation,
+        update_car,
+        delete_car,
+    ],
 )

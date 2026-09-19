@@ -43,6 +43,10 @@ _Avoid_: allowance, ceiling, cap (alone)
 The comparison of a Mileage Record's Odometer Reading against the Theoretical Limit at that record's date, producing a signed gap in kilometres. Positive = the car is over the allowed limit; negative = under. No Evaluation exists for a Mileage Record dated before the first Insurance Report, or when no Insurance Report is in force at the record's date.
 _Avoid_: status, score, verdict
 
+**Today's Evaluation**:
+The comparison of a Car's latest Odometer Reading against today's Theoretical Limit. The Theoretical Limit remains the value shown on the Garage dashboard; the gap is positive when over, negative when under, and absent when the Car has no Mileage Records. No Today's Evaluation exists when no Insurance Report is in force today.
+_Avoid_: current status, snapshot verdict
+
 ## Relationships
 
 - A **Car** has many **Mileage Records** and many **Insurance Reports** (1:N each).
@@ -51,4 +55,5 @@ _Avoid_: status, score, verdict
 - An **Insurance Report**'s **Annual Mileage Cap** governs driving for the interval from its date until the next **Insurance Report** takes over.
 - A **Theoretical Limit** at a date is derived from the **Annual Mileage Cap** of the **Insurance Report** in force at that date (no persisted record; computed on demand from the report's date, odometer reading, and cap).
 - An **Evaluation** exists for a **Mileage Record** when an **Insurance Report** is in force at the record's date; it is the record's **Odometer Reading** minus the **Theoretical Limit** at that date.
+- A **Today's Evaluation** is derived from a **Car**'s latest **Mileage Record** and the **Theoretical Limit** at today's date; it has no gap when the **Car** has no **Mileage Records**.
 - The **Odometer Reading** of a **Car**'s entries never decreases over time: an entry's reading is at least as high as every entry dated before it, no higher than every entry dated after it, and exactly equal to every entry sharing its date. The **Car**'s **Mileage Records** and **Insurance Reports** are considered together for this rule.

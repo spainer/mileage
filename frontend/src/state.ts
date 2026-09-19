@@ -10,11 +10,12 @@ import {
   type UpdateMileageRecordInput,
 } from './api/client'
 import { todayIso } from './format'
-import type { Car, InsuranceReport, MileageRecord } from './types'
+import type { Car, InsuranceReport, MileageRecord, TodayEvaluation } from './types'
 
 export const cars = ref<Car[]>([])
 export const mileageRecords = ref<MileageRecord[]>([])
 export const insuranceReports = ref<InsuranceReport[]>([])
+export const evaluations = ref<Record<number, TodayEvaluation | null>>({})
 export const loading = ref(false)
 export const error = ref<string | null>(null)
 
@@ -25,12 +26,22 @@ export async function load(): Promise<void> {
     const loadedCars = await api.listCars()
     const perCar = await Promise.all(
       loadedCars.map((car) =>
-        Promise.all([api.listMileageRecords(car.id), api.listInsuranceReports(car.id)]),
+        Promise.all([
+          api.listMileageRecords(car.id),
+          api.listInsuranceReports(car.id),
+          api.getEvaluation(car.id),
+        ]),
       ),
     )
     cars.value = loadedCars
     mileageRecords.value = perCar.map(([records]) => records).flat()
     insuranceReports.value = perCar.map(([, reports]) => reports).flat()
+    evaluations.value = Object.fromEntries(
+      loadedCars.map((car, index) => {
+        const [, , evaluation] = perCar[index]
+        return [car.id, evaluation]
+      }),
+    )
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load the garage.'
   } finally {
@@ -56,6 +67,9 @@ export async function deleteCar(id: number): Promise<void> {
   cars.value = cars.value.filter((car) => car.id !== id)
   mileageRecords.value = mileageRecords.value.filter((record) => record.carId !== id)
   insuranceReports.value = insuranceReports.value.filter((report) => report.carId !== id)
+  evaluations.value = Object.fromEntries(
+    Object.entries(evaluations.value).filter(([carId]) => Number(carId) !== id),
+  )
 }
 
 export async function createMileageRecord(
@@ -64,6 +78,7 @@ export async function createMileageRecord(
 ): Promise<MileageRecord> {
   const record = await api.createMileageRecord(carId, data)
   mileageRecords.value.push(record)
+  await refreshEvaluation(carId)
   return record
 }
 
@@ -75,12 +90,14 @@ export async function updateMileageRecord(
   const record = await api.updateMileageRecord(carId, recordId, data)
   const index = mileageRecords.value.findIndex((existing) => existing.id === recordId)
   if (index !== -1) mileageRecords.value[index] = record
+  await refreshEvaluation(carId)
   return record
 }
 
 export async function deleteMileageRecord(carId: number, recordId: number): Promise<void> {
   await api.deleteMileageRecord(carId, recordId)
   mileageRecords.value = mileageRecords.value.filter((record) => record.id !== recordId)
+  await refreshEvaluation(carId)
 }
 
 export async function createInsuranceReport(
@@ -89,6 +106,7 @@ export async function createInsuranceReport(
 ): Promise<InsuranceReport> {
   const report = await api.createInsuranceReport(carId, data)
   insuranceReports.value.push(report)
+  await refreshEvaluation(carId)
   return report
 }
 
@@ -100,12 +118,14 @@ export async function updateInsuranceReport(
   const report = await api.updateInsuranceReport(carId, reportId, data)
   const index = insuranceReports.value.findIndex((existing) => existing.id === reportId)
   if (index !== -1) insuranceReports.value[index] = report
+  await refreshEvaluation(carId)
   return report
 }
 
 export async function deleteInsuranceReport(carId: number, reportId: number): Promise<void> {
   await api.deleteInsuranceReport(carId, reportId)
   insuranceReports.value = insuranceReports.value.filter((report) => report.id !== reportId)
+  await refreshEvaluation(carId)
 }
 
 interface CarItem {
@@ -118,6 +138,10 @@ function byCar<T extends CarItem>(list: T[], carId: number): T[] {
   return list
     .filter((item) => item.carId === carId)
     .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+}
+
+async function refreshEvaluation(carId: number): Promise<void> {
+  evaluations.value[carId] = await api.getEvaluation(carId)
 }
 
 export function recordsForCar(carId: number): MileageRecord[] {
@@ -153,4 +177,8 @@ export function mileageRowsForCar(carId: number): MileageRow[] {
 export function currentReport(carId: number): InsuranceReport | undefined {
   const today = todayIso()
   return reportsForCar(carId).find((report) => report.date <= today)
+}
+
+export function evaluationForCar(carId: number): TodayEvaluation | null | undefined {
+  return evaluations.value[carId]
 }

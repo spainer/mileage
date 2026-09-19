@@ -4,13 +4,14 @@ import { computed, onMounted, ref } from 'vue'
 import CarFormModal from '../components/CarFormModal.vue'
 import CarSlideover from '../components/CarSlideover.vue'
 import LicensePlate from '../components/LicensePlate.vue'
-import { carLabel, formatDate, formatKm } from '../format'
-import { theme } from '../theme'
+import { carLabel, evaluationLabel, formatDate, formatKm } from '../format'
+import { evaluationToneClasses, theme } from '../theme'
 import {
   carById,
   cars,
   currentReport,
   error,
+  evaluationForCar,
   latestRecord,
   load,
   loading,
@@ -28,13 +29,19 @@ const retry = () => {
 }
 
 const cards = computed(() =>
-  cars.value.map((car) => ({
-    car,
-    latest: latestRecord(car.id),
-    cap: currentReport(car.id),
-    recordCount: recordsForCar(car.id).length,
-    reportCount: reportsForCar(car.id).length,
-  })),
+  cars.value.map((car) => {
+    const cap = currentReport(car.id)
+    const evaluation = evaluationForCar(car.id)
+    return {
+      car,
+      latest: latestRecord(car.id),
+      cap,
+      evaluation,
+      evaluationToneClass: evaluationToneClasses[evaluationLabel(evaluation).tone],
+      recordCount: recordsForCar(car.id).length,
+      reportCount: reportsForCar(car.id).length,
+    }
+  }),
 )
 
 const selectedCarId = ref<number | null>(null)
@@ -78,7 +85,7 @@ function onCarDeleted() {
     <template v-else>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div
-          v-for="{ car, latest, cap, recordCount, reportCount } in cards"
+          v-for="{ car, latest, cap, evaluation, evaluationToneClass, recordCount, reportCount } in cards"
           :key="car.id"
           role="button"
           tabindex="0"
@@ -109,6 +116,14 @@ function onCarDeleted() {
               <dd class="font-medium tabular-nums">
                 <template v-if="cap">
                   {{ formatKm(cap.mileagePerYear) }}
+                  <span
+                    v-if="evaluation"
+                    data-testid="theoretical-limit"
+                    class="block text-xs font-normal"
+                    :class="evaluationToneClass"
+                  >
+                    {{ formatKm(evaluation.theoreticalLimit) }}
+                  </span>
                 </template>
                 <span v-else class="text-muted">—</span>
               </dd>

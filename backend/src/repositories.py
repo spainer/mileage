@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import models
+from src.evaluation import evaluate_today
 from src.schemas import (
     Car,
     CarCreate,
@@ -16,6 +17,7 @@ from src.schemas import (
     MileageRecord,
     MileageRecordCreate,
     MileageRecordUpdate,
+    TodayEvaluation,
 )
 
 
@@ -38,6 +40,24 @@ class CarRepository:
 
     async def get(self, car_id: int) -> Car:
         return Car.from_orm(await get_car_or_404(self._session, car_id))
+
+    async def evaluation(self, car_id: int) -> TodayEvaluation | None:
+        await get_car_or_404(self._session, car_id)
+        records = (
+            await self._session.execute(
+                select(models.MileageRecord)
+                .where(models.MileageRecord.car_id == car_id)
+                .order_by(models.MileageRecord.date, models.MileageRecord.id)
+            )
+        ).scalars().all()
+        reports = (
+            await self._session.execute(
+                select(models.InsuranceReport)
+                .where(models.InsuranceReport.car_id == car_id)
+                .order_by(models.InsuranceReport.date, models.InsuranceReport.id)
+            )
+        ).scalars().all()
+        return evaluate_today(records, reports)
 
     async def _commit_or_conflict(self) -> None:
         try:
