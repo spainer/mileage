@@ -120,3 +120,13 @@ class InsuranceReport(BaseModel):
             odometer_reading=report.odometer_reading,
             mileage_per_year=report.mileage_per_year,
         )
+
+
+class Evaluation(BaseModel):
+    theoretical_limit: int
+    delta: int
+
+
+class TodayEvaluation(BaseModel):
+    theoretical_limit: int
+    delta: int | None
