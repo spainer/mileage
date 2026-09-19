@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import models
+from src.evaluation import evaluate_record, evaluate_records, evaluate_today
 from src.odometer_sequence import fetch_entries_for_car, validate as validate_sequence
 from src.schemas import (
     Car,
@@ -19,6 +20,7 @@ from src.schemas import (
     MileageRecord,
     MileageRecordCreate,
     MileageRecordUpdate,
+    TodayEvaluation,
 )
 
 
@@ -55,6 +57,24 @@ class CarRepository:
 
     async def get(self, car_id: int) -> Car:
         return Car.from_orm(await get_car_or_404(self._session, car_id))
+
+    async def evaluation(self, car_id: int) -> TodayEvaluation | None:
+        await get_car_or_404(self._session, car_id)
+        records = (
+            await self._session.execute(
+                select(models.MileageRecord)
+                .where(models.MileageRecord.car_id == car_id)
+                .order_by(models.MileageRecord.date, models.MileageRecord.id)
+            )
+        ).scalars().all()
+        reports = (
+            await self._session.execute(
+                select(models.InsuranceReport)
+                .where(models.InsuranceReport.car_id == car_id)
+                .order_by(models.InsuranceReport.date, models.InsuranceReport.id)
+            )
+        ).scalars().all()
+        return evaluate_today(records, reports)
 
     async def _commit_or_conflict(self) -> None:
         try:
@@ -107,8 +127,18 @@ class MileageRecordRepository:
             raise NotFoundException(f"Mileage record {record_id} not found")
         return record
 
+    async def _reports_for(self, car_id: int) -> list[models.InsuranceReport]:
+        result = await self._session.execute(
+            select(models.InsuranceReport)
+            .where(models.InsuranceReport.car_id == car_id)
+            .order_by(models.InsuranceReport.date, models.InsuranceReport.id)
+        )
+        return list(result.scalars().all())
+
     async def get(self, car_id: int, record_id: int) -> MileageRecord:
-        return MileageRecord.from_orm(await self._get_record_or_404(car_id, record_id))
+        record = await self._get_record_or_404(car_id, record_id)
+        reports = await self._reports_for(car_id)
+        return MileageRecord.from_orm(record, evaluate_record(record, reports))
 
     async def list(self, car_id: int) -> list[MileageRecord]:
         await get_car_or_404(self._session, car_id)
@@ -117,7 +147,13 @@ class MileageRecordRepository:
             .where(models.MileageRecord.car_id == car_id)
             .order_by(models.MileageRecord.date, models.MileageRecord.id)
         )
-        return [MileageRecord.from_orm(record) for record in result.scalars().all()]
+        records = list(result.scalars().all())
+        reports = await self._reports_for(car_id)
+        evaluations = evaluate_records(records, reports)
+        return [
+            MileageRecord.from_orm(record, evaluation)
+            for record, evaluation in zip(records, evaluations)
+        ]
 
     async def create(self, car_id: int, data: MileageRecordCreate) -> MileageRecord:
         await get_car_or_404(self._session, car_id)
@@ -134,7 +170,8 @@ class MileageRecordRepository:
         )
         self._session.add(record)
         await self._session.commit()
-        return MileageRecord.from_orm(record)
+        reports = await self._reports_for(car_id)
+        return MileageRecord.from_orm(record, evaluate_record(record, reports))
 
     async def update(
         self, car_id: int, record_id: int, data: MileageRecordUpdate
@@ -149,7 +186,8 @@ class MileageRecordRepository:
             exclude=(record.id, "record"),
         )
         await self._session.commit()
-        return MileageRecord.from_orm(record)
+        reports = await self._reports_for(car_id)
+        return MileageRecord.from_orm(record, evaluate_record(record, reports))
 
     async def delete(self, car_id: int, record_id: int) -> None:
         record = await self._get_record_or_404(car_id, record_id)

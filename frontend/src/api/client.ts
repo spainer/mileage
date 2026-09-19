@@ -1,4 +1,10 @@
-import type { Car, InsuranceReport, MileageRecord } from '../types'
+import type {
+  Car,
+  Evaluation,
+  InsuranceReport,
+  MileageRecord,
+  TodayEvaluation,
+} from '../types'
 
 const BASE = '/api'
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const
@@ -25,6 +31,12 @@ interface WireMileageRecord {
   car_id: number
   date: string
   odometer_reading: number
+  evaluation?: WireEvaluation | null
+}
+
+interface WireEvaluation {
+  theoretical_limit: number
+  delta: number
 }
 
 interface WireInsuranceReport {
@@ -33,6 +45,11 @@ interface WireInsuranceReport {
   date: string
   odometer_reading: number
   mileage_per_year: number
+}
+
+interface WireTodayEvaluation {
+  theoretical_limit: number
+  delta: number | null
 }
 
 function toCar(wire: WireCar): Car {
@@ -45,6 +62,14 @@ function toMileageRecord(wire: WireMileageRecord): MileageRecord {
     carId: wire.car_id,
     date: wire.date,
     odometerReading: wire.odometer_reading,
+    evaluation: wire.evaluation ? toEvaluation(wire.evaluation) : wire.evaluation,
+  }
+}
+
+function toEvaluation(wire: WireEvaluation): Evaluation {
+  return {
+    theoreticalLimit: wire.theoretical_limit,
+    delta: wire.delta,
   }
 }
 
@@ -55,6 +80,13 @@ function toInsuranceReport(wire: WireInsuranceReport): InsuranceReport {
     date: wire.date,
     odometerReading: wire.odometer_reading,
     mileagePerYear: wire.mileage_per_year,
+  }
+}
+
+function toTodayEvaluation(wire: WireTodayEvaluation): TodayEvaluation {
+  return {
+    theoreticalLimit: wire.theoretical_limit,
+    delta: wire.delta,
   }
 }
 
@@ -142,6 +174,10 @@ export const api = {
   updateCar: (id: number, data: UpdateCarInput): Promise<Car> =>
     request<WireCar>(`/cars/${id}`, jsonInit('PATCH', data)).then(toCar),
   deleteCar: (id: number): Promise<void> => request<void>(`/cars/${id}`, { method: 'DELETE' }),
+  getEvaluation: (carId: number): Promise<TodayEvaluation | null> =>
+    request<WireTodayEvaluation | null>(`/cars/${carId}/evaluation`).then((wire) =>
+      wire === null ? null : toTodayEvaluation(wire),
+    ),
 
   listMileageRecords: (carId: number): Promise<MileageRecord[]> =>
     request<WireMileageRecord[]>(`/cars/${carId}/mileage-records`).then((wires) => wires.map(toMileageRecord)),

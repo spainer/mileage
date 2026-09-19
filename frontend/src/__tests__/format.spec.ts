@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { carLabel, formatDate, formatKm, formatPlate, isValidLicense, normalizeLicense, todayIso } from '../format'
+import {
+  carLabel,
+  evaluationLabel,
+  formatDate,
+  formatKm,
+  formatPlate,
+  isValidLicense,
+  normalizeLicense,
+  todayIso,
+} from '../format'
+import type { Evaluation, TodayEvaluation } from '../types'
 
 describe('formatDate', () => {
   it('formats an ISO date as a de-DE short date', () => {
@@ -92,5 +102,42 @@ describe('isValidLicense', () => {
     'M-AB1234C',
   ])('rejects the invalid license %s', (license) => {
     expect(isValidLicense(license)).toBe(false)
+  })
+})
+
+describe('evaluationLabel', () => {
+  function evaluation(delta: number | null): TodayEvaluation {
+    return { theoreticalLimit: 1000, delta }
+  }
+
+  it('renders a missing evaluation as a neutral dash', () => {
+    expect(evaluationLabel(null)).toEqual({ text: '—', tone: 'none' })
+    expect(evaluationLabel(undefined)).toEqual({ text: '—', tone: 'none' })
+  })
+
+  it('renders a positive delta as an over label', () => {
+    expect(evaluationLabel(evaluation(500))).toEqual({ text: '500 km over', tone: 'over' })
+  })
+
+  it('formats a four-digit over label with the German thousand separator', () => {
+    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1.500 km over', tone: 'over' })
+  })
+
+  it('renders a negative delta as an under label', () => {
+    expect(evaluationLabel(evaluation(-500))).toEqual({ text: '500 km under', tone: 'under' })
+  })
+
+  it('renders a zero delta as an on-limit label', () => {
+    expect(evaluationLabel(evaluation(0))).toEqual({ text: 'On limit', tone: 'on-limit' })
+  })
+
+  it('accepts a per-record Evaluation', () => {
+    const recordEvaluation: Evaluation = { theoreticalLimit: 1000, delta: 500 }
+
+    expect(evaluationLabel(recordEvaluation)).toEqual({ text: '500 km over', tone: 'over' })
+  })
+
+  it('renders a today evaluation without a mileage record as a neutral dash', () => {
+    expect(evaluationLabel(evaluation(null))).toEqual({ text: '—', tone: 'none' })
   })
 })

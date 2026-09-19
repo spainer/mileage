@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { formatDate, formatKm } from '../src/format'
+import { evaluationLabel, formatDate, formatKm } from '../src/format'
+import { evaluationToneClasses } from '../src/theme'
+import type { EvaluationLabel } from '../src/types'
 
 const BACKEND = 'http://localhost:8000/api'
 
@@ -78,6 +80,26 @@ async function openSlideover(page: Page, plate: string) {
   return page.getByRole('dialog')
 }
 
+interface WireMileageRecord {
+  id: number
+  car_id: number
+  date: string
+  odometer_reading: number
+  evaluation: { theoretical_limit: number; delta: number } | null
+}
+
+async function expectedEvaluationLabels(): Promise<EvaluationLabel[]> {
+  const records = (await request(`/cars/${carId}/mileage-records`)) as WireMileageRecord[]
+  const newestFirst = [...records].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+  return newestFirst.map((record) =>
+    evaluationLabel(
+      record.evaluation
+        ? { theoreticalLimit: record.evaluation.theoretical_limit, delta: record.evaluation.delta }
+        : null,
+    ),
+  )
+}
+
 test.beforeEach(async () => {
   await wipeCars()
   await seed()
@@ -124,6 +146,24 @@ test('lists the mileage records newest first with the Latest summary and Since l
   await expect(body.locator('tr').nth(1)).toContainText(`+${formatKm(9190)}`)
   await expect(body.locator('tr').nth(2)).toContainText(formatKm(84210))
   await expect(body.locator('tr').nth(2)).toContainText('—')
+})
+
+test('shows the per-record limit in a right-aligned Limit column on desktop', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  const labels = await expectedEvaluationLabels()
+
+  await expect(dialog.getByRole('columnheader', { name: 'Limit' })).toBeVisible()
+
+  const body = dialog.locator('tbody')
+  for (let index = 0; index < 3; index += 1) {
+    const cell = body.locator('tr').nth(index).locator('td').nth(3)
+    await expect(cell).toHaveClass(/text-right/)
+    const span = cell.locator('span')
+    await expect(span).toHaveText(labels[index].text)
+    await expect(span).toHaveClass(new RegExp(evaluationToneClasses[labels[index].tone]))
+  }
 })
 
 test('lists the insurance reports newest first with the In force summary and badge', async ({ page }) => {
@@ -174,9 +214,12 @@ test('renders the lists as card lists on small screens', async ({ page }) => {
 
   await expect(dialog.locator('table')).toBeHidden()
   const mileageCards = dialog.locator('div.md\\:hidden')
+  const labels = await expectedEvaluationLabels()
   await expect(mileageCards.getByText(`${formatKm(101400)} km`)).toBeVisible()
-  await expect(mileageCards.getByText(`${formatDate(latestDate)} · +${formatKm(8000)} km`)).toBeVisible()
-  await expect(mileageCards.getByText(`${formatDate(firstDate)} · —`)).toBeVisible()
+  await expect(
+    mileageCards.getByText(`${formatDate(latestDate)} · +${formatKm(8000)} km · ${labels[0].text}`),
+  ).toBeVisible()
+  await expect(mileageCards.getByText(`${formatDate(firstDate)} · — · ${labels[2].text}`)).toBeVisible()
 
   await dialog.getByRole('tab', { name: 'Insurance' }).click()
   await expect(dialog.locator('table')).toBeHidden()

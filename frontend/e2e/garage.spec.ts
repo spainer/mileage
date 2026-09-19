@@ -1,11 +1,19 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { formatDate, formatKm, formatPlate } from '../src/format'
+import { formatDate, formatKm, formatPlate, isoLocalDate, todayIso } from '../src/format'
 
 const BACKEND = 'http://localhost:8000/api'
 
 const READING = 45_678
 const ANNUAL_MILEAGE_CAP = 15_000
+const OVER_BY = 1_000
+const REPORTED_READING = READING - ANNUAL_MILEAGE_CAP - OVER_BY
+
+function oneYearBeforeToday(): string {
+  const date = new Date(`${todayIso()}T00:00:00`)
+  date.setFullYear(date.getFullYear() - 1)
+  return isoLocalDate(date)
+}
 
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(`${BACKEND}${path}`, {
@@ -29,6 +37,13 @@ function randomLicense(): string {
   return `M-${letters}${digits}`
 }
 
+async function findCarByLicense(license: string): Promise<{ id: number; license: string }> {
+  const cars = (await request('/cars')) as Array<{ id: number; license: string }>
+  const car = cars.find((candidate) => candidate.license === license)
+  if (!car) throw new Error(`Car ${license} not found`)
+  return car
+}
+
 async function wipeCars(): Promise<void> {
   const cars = (await request('/cars')) as Array<{ id: number }>
   for (const car of cars) {
@@ -36,11 +51,21 @@ async function wipeCars(): Promise<void> {
   }
 }
 
+interface EvaluationWire {
+  theoretical_limit: number
+  delta: number | null
+}
+
 async function seedCar(manufacturer: string, model: string, license: string): Promise<void> {
   await request('/cars', {
     method: 'POST',
     body: JSON.stringify({ manufacturer, model, license }),
   })
+}
+
+async function evaluationForLicense(license: string): Promise<EvaluationWire | null> {
+  const car = await findCarByLicense(license)
+  return (await request(`/cars/${car.id}/evaluation`)) as EvaluationWire | null
 }
 
 function cardFor(page: Page, license: string) {
@@ -76,6 +101,7 @@ test.describe('Garage', () => {
     const card = cardFor(page, license)
     await expect(card).toBeVisible()
     await expect(card).toContainText('Opel Corsa')
+    await expect(card.getByTestId('theoretical-limit')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '+ Add car' })).toBeVisible()
   })
 
@@ -154,10 +180,11 @@ test.describe('Garage', () => {
     const reportModal = page.getByRole('dialog', { name: 'Add report' })
     await expect(reportModal).toBeVisible()
     await expect(reportModal.getByRole('button', { name: 'Delete' })).toHaveCount(0)
-    reportDate = await reportModal.getByLabel('Date').inputValue()
     await expect(reportModal.getByLabel('Odometer reading (km)')).toHaveValue('')
-    await expect(reportModal.getByText('Must be 45.678 km.')).toBeVisible()
-    await reportModal.getByLabel('Odometer reading (km)').fill(String(READING))
+    reportDate = oneYearBeforeToday()
+    await reportModal.getByLabel('Date').fill(reportDate)
+    await expect(reportModal.getByText('Must be at most 45.678 km.')).toBeVisible()
+    await reportModal.getByLabel('Odometer reading (km)').fill(String(REPORTED_READING))
     await reportModal.getByLabel('Annual mileage cap (km/year)').fill(String(ANNUAL_MILEAGE_CAP))
     await reportModal.getByRole('button', { name: 'Add report' }).click()
     await expect(reportModal).toBeHidden()
@@ -191,6 +218,13 @@ test.describe('Garage', () => {
     await expect(card.getByText(`${formatKm(READING)} km`)).toBeVisible()
     await expect(card.getByText(formatDate(recordDate))).toBeVisible()
     await expect(card.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
+    const evaluation = await evaluationForLicense(createdLicense)
+    expect(evaluation).not.toBeNull()
+    expect(evaluation?.delta).toBeGreaterThan(0)
+
+    const theoreticalLimit = card.getByTestId('theoretical-limit')
+    await expect(theoreticalLimit).toHaveText(formatKm(evaluation!.theoretical_limit))
+    await expect(theoreticalLimit).toHaveClass(/text-error/)
     await expect(card).toContainText('1 reading')
     await expect(card).toContainText('1 report')
   })

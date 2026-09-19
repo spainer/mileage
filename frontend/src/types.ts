@@ -10,6 +10,7 @@ export interface MileageRecord {
   carId: number
   date: string
   odometerReading: number
+  evaluation?: Evaluation | null
 }
 
 export interface InsuranceReport {
@@ -18,4 +19,21 @@ export interface InsuranceReport {
   date: string
   odometerReading: number
   mileagePerYear: number
+}
+
+export interface Evaluation {
+  theoreticalLimit: number
+  delta: number
+}
+
+export interface TodayEvaluation {
+  theoreticalLimit: number
+  delta: number | null
+}
+
+export type EvaluationTone = 'over' | 'under' | 'on-limit' | 'none'
+
+export interface EvaluationLabel {
+  text: string
+  tone: EvaluationTone
 }

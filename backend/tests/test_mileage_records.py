@@ -14,6 +14,23 @@ def create_record(
     )
 
 
+def create_report(
+    client,
+    car_id: int,
+    day: str,
+    odometer_reading: int = 1000,
+    mileage_per_year: int = 15000,
+):
+    return client.post(
+        f"/api/cars/{car_id}/insurance-reports",
+        json={
+            "date": day,
+            "odometer_reading": odometer_reading,
+            "mileage_per_year": mileage_per_year,
+        },
+    )
+
+
 def test_create_mileage_record(client):
     car = create_car(client)
 
@@ -138,6 +155,59 @@ def test_get_mileage_record_for_missing_car_returns_404(client):
     response = client.get(f"/api/cars/999/mileage-records/{record['id']}")
 
     assert response.status_code == 404
+
+
+def test_list_mileage_records_includes_evaluation(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-01-01", odometer_reading=1000,
+        mileage_per_year=0,
+    )
+    create_record(client, car["id"], day="2026-01-02", odometer_reading=1500)
+
+    response = client.get(f"/api/cars/{car['id']}/mileage-records")
+
+    assert response.status_code == 200
+    (record,) = response.json()
+    assert record["evaluation"] == {"theoretical_limit": 1000, "delta": 500}
+
+
+def test_mileage_record_evaluation_is_null_before_first_report(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-03-01", odometer_reading=1000,
+        mileage_per_year=15000,
+    )
+    create_record(client, car["id"], day="2026-01-15", odometer_reading=900)
+
+    response = client.get(f"/api/cars/{car['id']}/mileage-records")
+
+    assert response.status_code == 200
+    (record,) = response.json()
+    assert record["evaluation"] is None
+
+
+def test_get_mileage_record_includes_evaluation(client):
+    car = create_car(client)
+    create_report(
+        client, car["id"], day="2026-01-01", odometer_reading=1000,
+        mileage_per_year=0,
+    )
+    created = create_record(
+        client, car["id"], day="2026-01-02", odometer_reading=1500
+    ).json()
+
+    response = client.get(f"/api/cars/{car['id']}/mileage-records/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["evaluation"] == {"theoretical_limit": 1000, "delta": 500}
+
+
+def test_evaluation_schema_is_exposed_on_openapi(client):
+    response = client.get("/api/schema/openapi.json")
+
+    assert response.status_code == 200
+    assert "Evaluation" in response.json()["components"]["schemas"]
 
 
 def test_update_mileage_record(client):

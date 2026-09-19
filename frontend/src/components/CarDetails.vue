@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import { formatDate, formatKm } from '../format'
+import { evaluationLabel, formatDate, formatKm } from '../format'
 import {
   currentReport,
   latestRecord,
   mileageRowsForCar,
   reportsForCar,
 } from '../state'
+import { evaluationToneClasses } from '../theme'
 import type { Car, InsuranceReport, MileageRecord } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
@@ -33,6 +34,7 @@ const mileageColumns = [
   { accessorKey: 'date', header: 'Date' },
   { accessorKey: 'odometerReading', header: 'Reading', meta: rightAligned },
   { accessorKey: 'delta', header: 'Since last', meta: rightAligned },
+  { accessorKey: 'evaluation', header: 'Limit', meta: rightAligned },
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
 ]
 
@@ -110,6 +112,16 @@ function openEditReport(report: InsuranceReport) {
               </span>
               <span v-else class="text-muted">—</span>
             </template>
+            <template #evaluation-cell="{ row }">
+              <span
+                :class="[
+                  'tabular-nums',
+                  evaluationToneClasses[evaluationLabel(row.original.evaluation).tone],
+                ]"
+              >
+                {{ evaluationLabel(row.original.evaluation).text }}
+              </span>
+            </template>
             <template #actions-cell="{ row }">
               <div class="flex justify-end">
                 <UButton
@@ -142,6 +154,11 @@ function openEditReport(report: InsuranceReport) {
                   {{ formatDate(row.date) }}
                   <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
                   <span v-else> · —</span>
+                  <span
+                    :class="evaluationToneClasses[evaluationLabel(row.evaluation).tone]"
+                  >
+                    · {{ evaluationLabel(row.evaluation).text }}
+                  </span>
                 </p>
               </div>
               <div class="flex shrink-0">
