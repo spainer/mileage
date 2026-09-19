@@ -63,6 +63,11 @@ OdometerReading = Annotated[int, Field(ge=0)]
 NullableDate = date | None
 
 
+class Evaluation(BaseModel):
+    theoretical_limit: int
+    delta: int
+
+
 class MileageRecordCreate(BaseModel):
     date: date
     odometer_reading: OdometerReading
@@ -78,14 +83,18 @@ class MileageRecord(BaseModel):
     car_id: int
     date: date
     odometer_reading: OdometerReading
+    evaluation: Evaluation | None = None
 
     @classmethod
-    def from_orm(cls, record: models.MileageRecord) -> MileageRecord:
+    def from_orm(
+        cls, record: models.MileageRecord, evaluation: Evaluation | None = None
+    ) -> MileageRecord:
         return cls(
             id=record.id,
             car_id=record.car_id,
             date=record.date,
             odometer_reading=record.odometer_reading,
+            evaluation=evaluation,
         )
 
 
@@ -120,11 +129,6 @@ class InsuranceReport(BaseModel):
             odometer_reading=report.odometer_reading,
             mileage_per_year=report.mileage_per_year,
         )
-
-
-class Evaluation(BaseModel):
-    theoretical_limit: int
-    delta: int
 
 
 class TodayEvaluation(BaseModel):

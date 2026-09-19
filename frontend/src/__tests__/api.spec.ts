@@ -129,6 +129,40 @@ describe('mileage records (nested under a car)', () => {
     expect(records).toEqual([{ id: 11, carId: 7, date: '2026-01-15', odometerReading: 84210 }])
   })
 
+  it('maps the per-record evaluation, keeping null for records without one', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse([
+        {
+          id: 11,
+          car_id: 7,
+          date: '2026-01-15',
+          odometer_reading: 84210,
+          evaluation: { theoretical_limit: 96151, delta: -11941 },
+        },
+        {
+          id: 12,
+          car_id: 7,
+          date: '2026-02-01',
+          odometer_reading: 90000,
+          evaluation: null,
+        },
+      ]),
+    )
+
+    const records = await api.listMileageRecords(7)
+
+    expect(records).toEqual([
+      {
+        id: 11,
+        carId: 7,
+        date: '2026-01-15',
+        odometerReading: 84210,
+        evaluation: { theoreticalLimit: 96151, delta: -11941 },
+      },
+      { id: 12, carId: 7, date: '2026-02-01', odometerReading: 90000, evaluation: null },
+    ])
+  })
+
   it('gets one record with GET /api/cars/{id}/mileage-records/{rid}', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 11, car_id: 7, date: '2026-01-15', odometer_reading: 84210 }),

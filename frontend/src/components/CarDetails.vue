@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 
 import { useConfirm } from '../composables/useConfirm'
-import { errorMessage, formatDate, formatKm } from '../format'
+import { evaluationLabel, errorMessage, formatDate, formatKm } from '../format'
 import {
   currentReport,
   deleteInsuranceReport,
@@ -11,6 +11,7 @@ import {
   mileageRowsForCar,
   reportsForCar,
 } from '../state'
+import { evaluationToneClasses } from '../theme'
 import type { Car, InsuranceReport, MileageRecord } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
@@ -42,6 +43,7 @@ const mileageColumns = [
   { accessorKey: 'date', header: 'Date' },
   { accessorKey: 'odometerReading', header: 'Reading', meta: rightAligned },
   { accessorKey: 'delta', header: 'Since last', meta: rightAligned },
+  { accessorKey: 'evaluation', header: 'Limit', meta: rightAligned },
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
 ]
 
@@ -165,6 +167,16 @@ async function removeReport(report: InsuranceReport) {
               </span>
               <span v-else class="text-muted">—</span>
             </template>
+            <template #evaluation-cell="{ row }">
+              <span
+                :class="[
+                  'tabular-nums',
+                  evaluationToneClasses[evaluationLabel(row.original.evaluation).tone],
+                ]"
+              >
+                {{ evaluationLabel(row.original.evaluation).text }}
+              </span>
+            </template>
             <template #actions-cell="{ row }">
               <div class="flex justify-end gap-1">
                 <UButton
@@ -207,6 +219,11 @@ async function removeReport(report: InsuranceReport) {
                   {{ formatDate(row.date) }}
                   <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
                   <span v-else> · —</span>
+                  <span
+                    :class="evaluationToneClasses[evaluationLabel(row.evaluation).tone]"
+                  >
+                    · {{ evaluationLabel(row.evaluation).text }}
+                  </span>
                 </p>
               </div>
               <div class="flex shrink-0 gap-1">

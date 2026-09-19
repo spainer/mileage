@@ -10,6 +10,7 @@ export interface MileageRecord {
   carId: number
   date: string
   odometerReading: number
+  evaluation?: Evaluation | null
 }
 
 export interface InsuranceReport {

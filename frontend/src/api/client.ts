@@ -1,5 +1,6 @@
 import type {
   Car,
+  Evaluation,
   InsuranceReport,
   MileageRecord,
   TodayEvaluation,
@@ -30,6 +31,12 @@ interface WireMileageRecord {
   car_id: number
   date: string
   odometer_reading: number
+  evaluation?: WireEvaluation | null
+}
+
+interface WireEvaluation {
+  theoretical_limit: number
+  delta: number
 }
 
 interface WireInsuranceReport {
@@ -55,6 +62,14 @@ function toMileageRecord(wire: WireMileageRecord): MileageRecord {
     carId: wire.car_id,
     date: wire.date,
     odometerReading: wire.odometer_reading,
+    evaluation: wire.evaluation ? toEvaluation(wire.evaluation) : wire.evaluation,
+  }
+}
+
+function toEvaluation(wire: WireEvaluation): Evaluation {
+  return {
+    theoreticalLimit: wire.theoretical_limit,
+    delta: wire.delta,
   }
 }
 

@@ -982,6 +982,34 @@ describe('slideover queries', () => {
     expect(state.mileageRowsForCar(9).map((row) => row.delta)).toEqual([-1000, 2000, null])
   })
 
+  it('carries the per-record evaluation onto the rows, keeping null for records without one', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url) === '/api/cars') {
+        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
+      }
+      if (String(url) === '/api/cars/9/mileage-records') {
+        return jsonResponse([
+          { id: 91, car_id: 9, date: '2026-01-01', odometer_reading: 10000, evaluation: null },
+          {
+            id: 92,
+            car_id: 9,
+            date: '2026-02-01',
+            odometer_reading: 12000,
+            evaluation: { theoretical_limit: 11500, delta: 500 },
+          },
+        ])
+      }
+      return jsonResponse([])
+    })
+    await state.load()
+
+    expect(state.mileageRowsForCar(9).map((row) => row.id)).toEqual([92, 91])
+    expect(state.mileageRowsForCar(9).map((row) => row.evaluation)).toEqual([
+      { theoreticalLimit: 11500, delta: 500 },
+      null,
+    ])
+  })
+
   it('returns no rows for a car without records', async () => {
     fetchMock.mockImplementation((url: string) => {
       if (String(url) === '/api/cars') {
