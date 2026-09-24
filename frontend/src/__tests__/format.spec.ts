@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   carLabel,
+  deltaLabel,
   evaluationLabel,
   formatDate,
   formatKm,
@@ -29,6 +30,20 @@ describe('formatKm', () => {
 
   it('leaves values below 1000 untouched', () => {
     expect(formatKm(42)).toBe('42')
+  })
+})
+
+describe('deltaLabel', () => {
+  it('renders a positive delta with a leading plus', () => {
+    expect(deltaLabel(17190)).toBe('+17.190')
+  })
+
+  it('renders a negative delta with the signed de-DE format', () => {
+    expect(deltaLabel(-4210)).toBe('-4.210')
+  })
+
+  it('renders a zero delta without a sign', () => {
+    expect(deltaLabel(0)).toBe('0')
   })
 })
 

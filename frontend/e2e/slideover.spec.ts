@@ -136,7 +136,7 @@ test('lists the mileage records newest first with the Latest summary and Since l
 
   const dialog = await openSlideover(page, 'M - AB 1234')
 
-  await expect(dialog.getByText(`Latest: ${formatKm(101400)} km on ${formatDate(latestDate)}`).first()).toBeVisible()
+  await expect(dialog.getByText(`Latest: ${formatKm(110000)} km on ${formatDate(futureDate)}`).first()).toBeVisible()
 
   const body = dialog.locator('tbody')
   await expect(body.locator('tr')).toHaveCount(3)

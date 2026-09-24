@@ -199,6 +199,8 @@ export type EntryRow =
   | (Omit<MileageRecord, 'carId'> & { kind: 'record'; evaluation: Evaluation | null })
   | (Omit<InsuranceReport, 'carId'> & { kind: 'report' })
 
+export type RecordRow = Extract<EntryRow, { kind: 'record' }>
+
 export function timelineForCar(carId: number): EntryRow[] {
   return mergedForCar(
     carId,
@@ -240,20 +242,6 @@ export function carById(id: number | null): Car | undefined {
 
 export function latestRecord(carId: number): MileageRecord | undefined {
   return recordsForCar(carId)[0]
-}
-
-export interface MileageRow extends MileageRecord {
-  delta: number | null
-}
-
-export function mileageRowsForCar(carId: number): MileageRow[] {
-  const records = recordsForCar(carId)
-  return records.map((record, index) => ({
-    ...record,
-    delta: records[index + 1]
-      ? record.odometerReading - records[index + 1].odometerReading
-      : null,
-  }))
 }
 
 export function currentReport(carId: number): InsuranceReport | undefined {

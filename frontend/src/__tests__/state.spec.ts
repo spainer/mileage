@@ -466,23 +466,6 @@ describe('mileage record mutations', () => {
       expectEvaluationRefresh()
     })
 
-    it('recomputes the deltas for the new row', async () => {
-      seedRecords()
-      fetchMock.mockResolvedValueOnce(
-        jsonResponse({ id: 13, car_id: 1, date: '2026-09-15', odometer_reading: 104300 }, 201),
-      )
-      mockEvaluationRefresh()
-
-      await state.createMileageRecord(1, { date: '2026-09-15', odometerReading: 104300 })
-
-      expect(state.mileageRowsForCar(1)).toEqual([
-        { id: 13, carId: 1, date: '2026-09-15', odometerReading: 104300, delta: 2900 },
-        { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400, delta: 17190 },
-        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
-      ])
-      expect(state.mileageRowsForCar(2)).toHaveLength(1)
-    })
-
     it('propagates a validation error verbatim and keeps the state unchanged', async () => {
       seedRecords()
       fetchMock.mockResolvedValueOnce(
@@ -557,7 +540,7 @@ describe('mileage record mutations', () => {
       ])
     })
 
-    it('saves a reading lower than the previous one and shows the negative delta', async () => {
+    it('saves a reading lower than the previous one', async () => {
       seedRecords()
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ id: 12, car_id: 1, date: '2026-08-30', odometer_reading: 80000 }),
@@ -567,10 +550,6 @@ describe('mileage record mutations', () => {
       await state.updateMileageRecord(1, 12, { odometerReading: 80000 })
 
       expect(state.latestRecord(1)).toEqual({ id: 12, carId: 1, date: '2026-08-30', odometerReading: 80000 })
-      expect(state.mileageRowsForCar(1)).toEqual([
-        { id: 12, carId: 1, date: '2026-08-30', odometerReading: 80000, delta: -4210 },
-        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
-      ])
     })
 
     it('propagates a validation error verbatim and keeps the state unchanged', async () => {
@@ -629,10 +608,6 @@ describe('mileage record mutations', () => {
       expect(init?.method).toBe('DELETE')
       expect(init?.body).toBeUndefined()
       expect(state.latestRecord(1)).toEqual({ id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210 })
-      expect(state.mileageRowsForCar(1)).toEqual([
-        { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
-      ])
-      expect(state.mileageRowsForCar(2)).toHaveLength(1)
     })
 
     it('propagates a 404 error and keeps the state unchanged', async () => {
@@ -951,84 +926,6 @@ describe('slideover queries', () => {
     expect(state.carById(null)).toBeUndefined()
   })
 
-  it('lists the car\'s records newest first with the delta since the previous reading', async () => {
-    fetchMock.mockImplementation((url: string) => route(url))
-    await state.load()
-
-    expect(state.mileageRowsForCar(1)).toEqual([
-      { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400, delta: 17190 },
-      { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, delta: null },
-    ])
-  })
-
-  it('lists a single record with no delta', async () => {
-    fetchMock.mockImplementation((url: string) => route(url))
-    await state.load()
-
-    expect(state.mileageRowsForCar(2)).toEqual([
-      { id: 21, carId: 2, date: '2025-03-10', odometerReading: 41000, delta: null },
-    ])
-  })
-
-  it('lists a negative delta when a reading went down', async () => {
-    fetchMock.mockImplementation((url: string) => {
-      if (String(url) === '/api/cars') {
-        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
-      }
-      if (String(url) === '/api/cars/9/mileage-records') {
-        return jsonResponse([
-          { id: 91, car_id: 9, date: '2026-01-01', odometer_reading: 10000 },
-          { id: 92, car_id: 9, date: '2026-02-01', odometer_reading: 12000 },
-          { id: 93, car_id: 9, date: '2026-03-01', odometer_reading: 11000 },
-        ])
-      }
-      return jsonResponse([])
-    })
-    await state.load()
-
-    expect(state.mileageRowsForCar(9).map((row) => row.id)).toEqual([93, 92, 91])
-    expect(state.mileageRowsForCar(9).map((row) => row.delta)).toEqual([-1000, 2000, null])
-  })
-
-  it('carries the per-record evaluation onto the rows, keeping null for records without one', async () => {
-    fetchMock.mockImplementation((url: string) => {
-      if (String(url) === '/api/cars') {
-        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
-      }
-      if (String(url) === '/api/cars/9/mileage-records') {
-        return jsonResponse([
-          { id: 91, car_id: 9, date: '2026-01-01', odometer_reading: 10000, evaluation: null },
-          {
-            id: 92,
-            car_id: 9,
-            date: '2026-02-01',
-            odometer_reading: 12000,
-            evaluation: { theoretical_limit: 11500, delta: 500 },
-          },
-        ])
-      }
-      return jsonResponse([])
-    })
-    await state.load()
-
-    expect(state.mileageRowsForCar(9).map((row) => row.id)).toEqual([92, 91])
-    expect(state.mileageRowsForCar(9).map((row) => row.evaluation)).toEqual([
-      { theoreticalLimit: 11500, delta: 500 },
-      null,
-    ])
-  })
-
-  it('returns no rows for a car without records', async () => {
-    fetchMock.mockImplementation((url: string) => {
-      if (String(url) === '/api/cars') {
-        return jsonResponse([{ id: 9, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' }])
-      }
-      return jsonResponse([])
-    })
-    await state.load()
-
-    expect(state.mileageRowsForCar(9)).toEqual([])
-  })
 })
 
 describe('merged timeline', () => {

@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import { evaluationLabel, formatDate, formatKm } from '../format'
+import { deltaLabel, evaluationLabel, formatDate, formatKm } from '../format'
 import {
   currentReport,
-  latestRecord,
-  mileageRowsForCar,
+  latestEntryForCar,
   reportsForCar,
+  timelineForCar,
 } from '../state'
+import type { RecordRow } from '../state'
 import { evaluationToneClasses } from '../theme'
-import type { Car, InsuranceReport, MileageRecord } from '../types'
+import type { Car, InsuranceReport } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
 
@@ -17,13 +18,22 @@ const props = defineProps<{
   car: Car
 }>()
 
-const rows = computed(() => mileageRowsForCar(props.car.id))
-const latest = computed(() => latestRecord(props.car.id))
+const rows = computed(() => {
+  const timeline = timelineForCar(props.car.id)
+  const recordRows = timeline.filter((row): row is RecordRow => row.kind === 'record')
+  return recordRows.map((row, index) => ({
+    ...row,
+    delta: recordRows[index + 1]
+      ? row.odometerReading - recordRows[index + 1].odometerReading
+      : null,
+  }))
+})
+const latest = computed(() => latestEntryForCar(props.car.id))
 const reports = computed(() => reportsForCar(props.car.id))
 const inForce = computed(() => currentReport(props.car.id))
 
 const recordModalOpen = ref(false)
-const editingRecord = ref<MileageRecord | null>(null)
+const editingRecord = ref<RecordRow | null>(null)
 
 const reportModalOpen = ref(false)
 const editingReport = ref<InsuranceReport | null>(null)
@@ -45,16 +55,12 @@ const reportColumns = [
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
 ]
 
-function deltaLabel(delta: number): string {
-  return delta > 0 ? `+${formatKm(delta)}` : formatKm(delta)
-}
-
 function openAddRecord() {
   editingRecord.value = null
   recordModalOpen.value = true
 }
 
-function openEditRecord(record: MileageRecord) {
+function openEditRecord(record: RecordRow) {
   editingRecord.value = record
   recordModalOpen.value = true
 }

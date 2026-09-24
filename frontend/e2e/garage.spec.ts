@@ -286,7 +286,9 @@ test.describe('Garage', () => {
     await expect(confirmDialog).toBeHidden()
     await expect(editModal).toBeHidden()
     await expect(slideover.getByText('No mileage readings yet.').first()).toBeVisible()
-    await expect(slideover.getByText('No readings yet')).toBeVisible()
+    await expect(
+      slideover.getByText(`Latest: ${formatKm(REPORTED_READING)} km on ${formatDate(reportDate)}`),
+    ).toBeVisible()
   })
 
   test('deletes the insurance report from the edit modal after confirmation', async ({ page }) => {
@@ -342,5 +344,38 @@ test.describe('Garage', () => {
     await expect(slideover).toBeHidden()
     await expect(page).toHaveURL('/')
     await expect(cardFor(page, createdLicense)).toBeHidden()
+  })
+
+  test('renders the full mileage table for a car with only mileage records', async ({ page }) => {
+    const license = randomLicense()
+    await seedCar('Ford', 'Fiesta', license)
+    const car = await findCarByLicense(license)
+    await request(`/cars/${car.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: oneYearBeforeToday(), odometer_reading: 84_210 }),
+    })
+    await request(`/cars/${car.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: todayIso(), odometer_reading: 101_400 }),
+    })
+
+    await page.goto('/')
+    const slideover = await openSlideover(page, license)
+    await expect(slideover).toBeVisible()
+
+    await expect(
+      slideover.getByText(`Latest: ${formatKm(101_400)} km on ${formatDate(todayIso())}`),
+    ).toBeVisible()
+    await expect(slideover.getByRole('button', { name: 'Add reading' })).toBeVisible()
+
+    const rows = slideover.locator('tbody tr')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(0)).toContainText(formatDate(todayIso()))
+    await expect(rows.nth(0)).toContainText(`${formatKm(101_400)} km`)
+    await expect(rows.nth(0)).toContainText(`+${formatKm(17_190)}`)
+    await expect(rows.nth(0).getByRole('button', { name: 'Edit reading' })).toBeVisible()
+    await expect(rows.nth(1)).toContainText(formatDate(oneYearBeforeToday()))
+    await expect(rows.nth(1)).toContainText(`${formatKm(84_210)} km`)
+    await expect(rows.nth(1)).toContainText('—')
   })
 })
