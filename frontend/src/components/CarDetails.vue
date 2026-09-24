@@ -8,9 +8,9 @@ import {
   reportsForCar,
   timelineForCar,
 } from '../state'
-import type { RecordRow } from '../state'
+import type { EntryRow, RecordRow } from '../state'
 import { evaluationToneClasses } from '../theme'
-import type { Car, InsuranceReport } from '../types'
+import type { Car, EvaluationLabel, InsuranceReport } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
 
@@ -18,13 +18,14 @@ const props = defineProps<{
   car: Car
 }>()
 
-const rows = computed(() => {
+type TimelineRow = EntryRow & { delta: number | null }
+
+const rows = computed<TimelineRow[]>(() => {
   const timeline = timelineForCar(props.car.id)
-  const recordRows = timeline.filter((row): row is RecordRow => row.kind === 'record')
-  return recordRows.map((row, index) => ({
+  return timeline.map((row, index) => ({
     ...row,
-    delta: recordRows[index + 1]
-      ? row.odometerReading - recordRows[index + 1].odometerReading
+    delta: timeline[index + 1]
+      ? row.odometerReading - timeline[index + 1].odometerReading
       : null,
   }))
 })
@@ -74,6 +75,26 @@ function openEditReport(report: InsuranceReport) {
   editingReport.value = report
   reportModalOpen.value = true
 }
+
+function limitLabel(row: EntryRow): EvaluationLabel {
+  if (row.kind === 'record') {
+    return evaluationLabel(row.evaluation)
+  }
+  const onLimit = evaluationLabel({ theoreticalLimit: row.odometerReading, delta: 0 })
+  return { text: '+0 km', tone: onLimit.tone }
+}
+
+function openEditEntry(row: EntryRow) {
+  if (row.kind === 'record') {
+    openEditRecord(row)
+    return
+  }
+  openEditReport({ ...row, carId: props.car.id })
+}
+
+function pencilLabel(row: EntryRow): string {
+  return row.kind === 'record' ? 'Edit reading' : 'Edit report'
+}
 </script>
 
 <template>
@@ -108,6 +129,12 @@ function openEditReport(report: InsuranceReport) {
               <span class="font-medium tabular-nums">
                 {{ formatKm(row.original.odometerReading) }} km
               </span>
+              <span
+                v-if="row.original.kind === 'report'"
+                class="block text-xs text-muted tabular-nums"
+              >
+                {{ formatKm(row.original.mileagePerYear) }} km/year
+              </span>
             </template>
             <template #delta-cell="{ row }">
               <span
@@ -122,10 +149,10 @@ function openEditReport(report: InsuranceReport) {
               <span
                 :class="[
                   'tabular-nums',
-                  evaluationToneClasses[evaluationLabel(row.original.evaluation).tone],
+                  evaluationToneClasses[limitLabel(row.original).tone],
                 ]"
               >
-                {{ evaluationLabel(row.original.evaluation).text }}
+                {{ limitLabel(row.original).text }}
               </span>
             </template>
             <template #actions-cell="{ row }">
@@ -135,8 +162,8 @@ function openEditReport(report: InsuranceReport) {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit reading"
-                  @click="openEditRecord(row.original)"
+                  :aria-label="pencilLabel(row.original)"
+                  @click="openEditEntry(row.original)"
                 />
               </div>
             </template>
@@ -150,20 +177,21 @@ function openEditReport(report: InsuranceReport) {
         </div>
 
         <div class="grid gap-2 md:hidden">
-          <UCard v-for="row in rows" :key="row.id">
+          <UCard v-for="row in rows" :key="`${row.kind}-${row.id}`">
             <div class="flex items-center justify-between gap-2">
               <div class="min-w-0">
                 <p class="font-medium tabular-nums">
                   {{ formatKm(row.odometerReading) }} km
+                  <span v-if="row.kind === 'report'" class="font-normal text-muted">
+                    · {{ formatKm(row.mileagePerYear) }} km/year
+                  </span>
                 </p>
                 <p class="text-sm text-muted tabular-nums">
                   {{ formatDate(row.date) }}
                   <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
                   <span v-else> · —</span>
-                  <span
-                    :class="evaluationToneClasses[evaluationLabel(row.evaluation).tone]"
-                  >
-                    · {{ evaluationLabel(row.evaluation).text }}
+                  <span :class="evaluationToneClasses[limitLabel(row).tone]">
+                    · {{ limitLabel(row).text }}
                   </span>
                 </p>
               </div>
@@ -173,8 +201,8 @@ function openEditReport(report: InsuranceReport) {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit reading"
-                  @click="openEditRecord(row)"
+                  :aria-label="pencilLabel(row)"
+                  @click="openEditEntry(row)"
                 />
               </div>
             </div>
