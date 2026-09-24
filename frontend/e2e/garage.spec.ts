@@ -470,4 +470,56 @@ test.describe('Garage', () => {
       slideover.getByText(`Latest: ${formatKm(READING)} km on ${formatDate(todayIso())}`),
     ).toBeVisible()
   })
+
+  test('annotates the Latest tile with Cap reset only when the latest entry is a report', async ({ page }) => {
+    const readingLicense = randomLicense()
+    await seedCar('Volkswagen', 'Polo', readingLicense)
+    const readingCar = await findCarByLicense(readingLicense)
+    await request(`/cars/${readingCar.id}/insurance-reports`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: oneYearBeforeToday(),
+        odometer_reading: 30_000,
+        mileage_per_year: ANNUAL_MILEAGE_CAP,
+      }),
+    })
+    await request(`/cars/${readingCar.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: todayIso(), odometer_reading: 42_500 }),
+    })
+
+    const reportLicense = randomLicense()
+    await seedCar('Opel', 'Corsa', reportLicense)
+    const reportCar = await findCarByLicense(reportLicense)
+    await request(`/cars/${reportCar.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: oneYearBeforeToday(), odometer_reading: 30_000 }),
+    })
+    const reportReading = 38_000
+    await request(`/cars/${reportCar.id}/insurance-reports`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: todayIso(),
+        odometer_reading: reportReading,
+        mileage_per_year: ANNUAL_MILEAGE_CAP,
+      }),
+    })
+
+    await page.goto('/')
+
+    const readingCard = cardFor(page, readingLicense)
+    await expect(readingCard).toBeVisible()
+    await expect(readingCard.getByText(`${formatKm(42_500)} km`)).toBeVisible()
+    await expect(readingCard.getByText('Cap reset')).toHaveCount(0)
+    await expect(readingCard.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
+    await expect(readingCard).toContainText('1 reading · 1 report')
+
+    const reportCard = cardFor(page, reportLicense)
+    await expect(reportCard).toBeVisible()
+    await expect(reportCard.getByText(`${formatKm(reportReading)} km`)).toBeVisible()
+    await expect(reportCard.getByText(formatDate(todayIso()))).toBeVisible()
+    await expect(reportCard.getByText('Cap reset')).toBeVisible()
+    await expect(reportCard.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
+    await expect(reportCard).toContainText('1 reading · 1 report')
+  })
 })

@@ -13,7 +13,7 @@ import {
   currentReport,
   error,
   evaluationForCar,
-  latestRecord,
+  latestEntryForCar,
   load,
   loading,
   recordsForCar,
@@ -38,7 +38,7 @@ const cards = computed(() =>
     const evaluation = evaluationForCar(car.id)
     return {
       car,
-      latest: latestRecord(car.id),
+      latest: latestEntryForCar(car.id),
       cap,
       evaluation,
       evaluationToneClass: evaluationToneClasses[evaluationLabel(evaluation).tone],
@@ -130,6 +130,12 @@ function onSlideoverClose() {
                   {{ formatKm(latest.odometerReading) }} km
                   <span class="block text-xs font-normal text-muted">
                     {{ formatDate(latest.date) }}
+                  </span>
+                  <span
+                    v-if="latest.kind === 'report'"
+                    class="block text-xs font-normal text-muted"
+                  >
+                    Cap reset
                   </span>
                 </template>
                 <span v-else class="text-muted">—</span>
