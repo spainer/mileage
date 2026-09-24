@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { todayIso } from '../format'
 import * as state from '../state'
+import type { EntryRow, LatestEntry } from '../state'
 import type { InsuranceReport, MileageRecord } from '../types'
 import { jsonResponse } from './helpers'
 
@@ -920,6 +921,13 @@ describe('query types', () => {
     expect(records).toEqual([])
     expect(reports).toEqual([])
   })
+
+  it('timeline queries return the domain types', () => {
+    const rows: EntryRow[] = state.timelineForCar(1)
+    const latest: LatestEntry | undefined = state.latestEntryForCar(1)
+    expect(rows).toEqual([])
+    expect(latest).toBeUndefined()
+  })
 })
 
 describe('slideover queries', () => {
@@ -1020,5 +1028,95 @@ describe('slideover queries', () => {
     await state.load()
 
     expect(state.mileageRowsForCar(9)).toEqual([])
+  })
+})
+
+describe('merged timeline', () => {
+  function seedTimeline() {
+    state.cars.value = [
+      { id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' },
+      { id: 2, manufacturer: 'BMW', model: '320d', license: 'B-XYZ 123' },
+      { id: 3, manufacturer: 'Audi', model: 'A3', license: 'B-A3 111' },
+    ]
+    state.mileageRecords.value = [
+      { id: 11, carId: 1, date: '2026-01-15', odometerReading: 84210, evaluation: null },
+      { id: 12, carId: 1, date: '2026-08-30', odometerReading: 101400, evaluation: { theoreticalLimit: 99800, delta: 1600 } },
+      { id: 21, carId: 2, date: '2025-03-10', odometerReading: 43000 },
+      { id: 61, carId: 3, date: '2026-05-05', odometerReading: 50000 },
+    ]
+    state.insuranceReports.value = [
+      { id: 31, carId: 1, date: '2026-02-01', odometerReading: 93400, mileagePerYear: 12000 },
+      { id: 32, carId: 1, date: '2027-01-01', odometerReading: 110000, mileagePerYear: 9999 },
+      { id: 41, carId: 2, date: '2025-03-01', odometerReading: 42000, mileagePerYear: 8000 },
+      { id: 62, carId: 3, date: '2026-05-05', odometerReading: 50000, mileagePerYear: 7000 },
+    ]
+  }
+
+  it('returns the report as the latest entry when the report is dated after every reading', () => {
+    seedTimeline()
+
+    expect(state.latestEntryForCar(1)).toEqual({
+      id: 32,
+      date: '2027-01-01',
+      odometerReading: 110000,
+      kind: 'report',
+    })
+  })
+
+  it('returns the reading as the latest entry when the reading is dated after every report', () => {
+    seedTimeline()
+
+    expect(state.latestEntryForCar(2)).toEqual({
+      id: 21,
+      date: '2025-03-10',
+      odometerReading: 43000,
+      kind: 'record',
+    })
+  })
+
+  it('resolves same-date entries by id desc as the latest entry', () => {
+    seedTimeline()
+
+    expect(state.latestEntryForCar(3)).toEqual({
+      id: 62,
+      date: '2026-05-05',
+      odometerReading: 50000,
+      kind: 'report',
+    })
+  })
+
+  it('returns no latest entry for a car without entries', () => {
+    seedTimeline()
+
+    expect(state.latestEntryForCar(9)).toBeUndefined()
+  })
+
+  it('sorts the merged timeline date desc, id desc', () => {
+    seedTimeline()
+
+    expect(state.timelineForCar(1).map((row) => row.id)).toEqual([32, 12, 31, 11])
+  })
+
+  it('keeps same-date entries adjacent in id desc order in the merged timeline', () => {
+    seedTimeline()
+
+    expect(state.timelineForCar(3).map((row) => row.id)).toEqual([62, 61])
+  })
+
+  it('stamps the merged timeline rows with their kind', () => {
+    seedTimeline()
+
+    expect(state.timelineForCar(1).map((row) => row.kind)).toEqual(['report', 'record', 'report', 'record'])
+  })
+
+  it('carries the evaluation on record rows and the annual mileage cap on report rows', () => {
+    seedTimeline()
+
+    expect(state.timelineForCar(1)).toEqual([
+      { id: 32, date: '2027-01-01', odometerReading: 110000, kind: 'report', mileagePerYear: 9999 },
+      { id: 12, date: '2026-08-30', odometerReading: 101400, kind: 'record', evaluation: { theoreticalLimit: 99800, delta: 1600 } },
+      { id: 31, date: '2026-02-01', odometerReading: 93400, kind: 'report', mileagePerYear: 12000 },
+      { id: 11, date: '2026-01-15', odometerReading: 84210, kind: 'record', evaluation: null },
+    ])
   })
 })
