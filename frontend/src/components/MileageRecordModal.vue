@@ -10,12 +10,13 @@ import {
   entriesForCar,
   updateMileageRecord,
 } from '../state'
-import type { Car, MileageRecord } from '../types'
+import type { RecordRow } from '../state'
+import type { Car } from '../types'
 
 const props = defineProps<{
   open: boolean
   car: Car
-  record: MileageRecord | null
+  record: RecordRow | null
 }>()
 
 const emit = defineEmits<{

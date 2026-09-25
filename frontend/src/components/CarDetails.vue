@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import { evaluationLabel, formatDate, formatKm } from '../format'
+import { deltaLabel, evaluationLabel, formatDate, formatKm } from '../format'
 import {
   currentReport,
-  latestRecord,
-  mileageRowsForCar,
+  latestEntryForCar,
   reportsForCar,
+  timelineForCar,
 } from '../state'
+import type { EntryRow, RecordRow } from '../state'
 import { evaluationToneClasses } from '../theme'
-import type { Car, InsuranceReport, MileageRecord } from '../types'
+import type { Car, EvaluationLabel, InsuranceReport } from '../types'
 import InsuranceReportModal from './InsuranceReportModal.vue'
 import MileageRecordModal from './MileageRecordModal.vue'
 
@@ -17,13 +18,23 @@ const props = defineProps<{
   car: Car
 }>()
 
-const rows = computed(() => mileageRowsForCar(props.car.id))
-const latest = computed(() => latestRecord(props.car.id))
+type TimelineRow = EntryRow & { delta: number | null }
+
+const rows = computed<TimelineRow[]>(() => {
+  const timeline = timelineForCar(props.car.id)
+  return timeline.map((row, index) => ({
+    ...row,
+    delta: timeline[index + 1]
+      ? row.odometerReading - timeline[index + 1].odometerReading
+      : null,
+  }))
+})
+const latest = computed(() => latestEntryForCar(props.car.id))
 const reports = computed(() => reportsForCar(props.car.id))
 const inForce = computed(() => currentReport(props.car.id))
 
 const recordModalOpen = ref(false)
-const editingRecord = ref<MileageRecord | null>(null)
+const editingRecord = ref<RecordRow | null>(null)
 
 const reportModalOpen = ref(false)
 const editingReport = ref<InsuranceReport | null>(null)
@@ -45,16 +56,12 @@ const reportColumns = [
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
 ]
 
-function deltaLabel(delta: number): string {
-  return delta > 0 ? `+${formatKm(delta)}` : formatKm(delta)
-}
-
 function openAddRecord() {
   editingRecord.value = null
   recordModalOpen.value = true
 }
 
-function openEditRecord(record: MileageRecord) {
+function openEditRecord(record: RecordRow) {
   editingRecord.value = record
   recordModalOpen.value = true
 }
@@ -67,6 +74,26 @@ function openAddReport() {
 function openEditReport(report: InsuranceReport) {
   editingReport.value = report
   reportModalOpen.value = true
+}
+
+function limitLabel(row: EntryRow): EvaluationLabel {
+  if (row.kind === 'record') {
+    return evaluationLabel(row.evaluation)
+  }
+  const onLimit = evaluationLabel({ theoreticalLimit: row.odometerReading, delta: 0 })
+  return { text: '+0 km', tone: onLimit.tone }
+}
+
+function openEditEntry(row: EntryRow) {
+  if (row.kind === 'record') {
+    openEditRecord(row)
+    return
+  }
+  openEditReport({ ...row, carId: props.car.id })
+}
+
+function pencilLabel(row: EntryRow): string {
+  return row.kind === 'record' ? 'Edit reading' : 'Edit report'
 }
 </script>
 
@@ -102,6 +129,12 @@ function openEditReport(report: InsuranceReport) {
               <span class="font-medium tabular-nums">
                 {{ formatKm(row.original.odometerReading) }} km
               </span>
+              <span
+                v-if="row.original.kind === 'report'"
+                class="block text-xs text-muted tabular-nums"
+              >
+                {{ formatKm(row.original.mileagePerYear) }} km/year
+              </span>
             </template>
             <template #delta-cell="{ row }">
               <span
@@ -116,10 +149,10 @@ function openEditReport(report: InsuranceReport) {
               <span
                 :class="[
                   'tabular-nums',
-                  evaluationToneClasses[evaluationLabel(row.original.evaluation).tone],
+                  evaluationToneClasses[limitLabel(row.original).tone],
                 ]"
               >
-                {{ evaluationLabel(row.original.evaluation).text }}
+                {{ limitLabel(row.original).text }}
               </span>
             </template>
             <template #actions-cell="{ row }">
@@ -129,8 +162,8 @@ function openEditReport(report: InsuranceReport) {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit reading"
-                  @click="openEditRecord(row.original)"
+                  :aria-label="pencilLabel(row.original)"
+                  @click="openEditEntry(row.original)"
                 />
               </div>
             </template>
@@ -144,20 +177,21 @@ function openEditReport(report: InsuranceReport) {
         </div>
 
         <div class="grid gap-2 md:hidden">
-          <UCard v-for="row in rows" :key="row.id">
+          <UCard v-for="row in rows" :key="`${row.kind}-${row.id}`">
             <div class="flex items-center justify-between gap-2">
               <div class="min-w-0">
                 <p class="font-medium tabular-nums">
                   {{ formatKm(row.odometerReading) }} km
+                  <span v-if="row.kind === 'report'" class="font-normal text-muted">
+                    · {{ formatKm(row.mileagePerYear) }} km/year
+                  </span>
                 </p>
                 <p class="text-sm text-muted tabular-nums">
                   {{ formatDate(row.date) }}
                   <span v-if="row.delta !== null"> · {{ deltaLabel(row.delta) }} km</span>
                   <span v-else> · —</span>
-                  <span
-                    :class="evaluationToneClasses[evaluationLabel(row.evaluation).tone]"
-                  >
-                    · {{ evaluationLabel(row.evaluation).text }}
+                  <span :class="evaluationToneClasses[limitLabel(row).tone]">
+                    · {{ limitLabel(row).text }}
                   </span>
                 </p>
               </div>
@@ -167,8 +201,8 @@ function openEditReport(report: InsuranceReport) {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit reading"
-                  @click="openEditRecord(row)"
+                  :aria-label="pencilLabel(row)"
+                  @click="openEditEntry(row)"
                 />
               </div>
             </div>

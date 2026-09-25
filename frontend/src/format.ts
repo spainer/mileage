@@ -22,6 +22,10 @@ export function formatKm(value: number): string {
   return new Intl.NumberFormat('de-DE').format(value)
 }
 
+export function deltaLabel(delta: number): string {
+  return delta > 0 ? `+${formatKm(delta)}` : formatKm(delta)
+}
+
 export function formatPlate(license: string): string {
   return license.replace(/-/g, ' - ').replace(/(?<=[A-Za-z])(?=\d)/g, ' ')
 }

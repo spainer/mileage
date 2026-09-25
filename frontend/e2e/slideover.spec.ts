@@ -129,26 +129,34 @@ test('opening a card pushes the car\'s URL', async ({ page }) => {
   await expect(page).toHaveURL(`/cars/${carId}`)
 })
 
-test('lists the mileage records newest first with the Latest summary and Since last deltas', async ({
+test('lists the merged timeline newest first with the Latest summary and Since last deltas', async ({
   page,
 }) => {
   await page.goto('/')
 
   const dialog = await openSlideover(page, 'M - AB 1234')
 
-  await expect(dialog.getByText(`Latest: ${formatKm(101400)} km on ${formatDate(latestDate)}`).first()).toBeVisible()
+  await expect(dialog.getByText(`Latest: ${formatKm(110000)} km on ${formatDate(futureDate)}`).first()).toBeVisible()
 
   const body = dialog.locator('tbody')
-  await expect(body.locator('tr')).toHaveCount(3)
-  await expect(body.locator('tr').nth(0)).toContainText(formatKm(101400))
-  await expect(body.locator('tr').nth(0)).toContainText(`+${formatKm(8000)}`)
-  await expect(body.locator('tr').nth(1)).toContainText(formatKm(93400))
-  await expect(body.locator('tr').nth(1)).toContainText(`+${formatKm(9190)}`)
-  await expect(body.locator('tr').nth(2)).toContainText(formatKm(84210))
-  await expect(body.locator('tr').nth(2)).toContainText('—')
+  await expect(body.locator('tr')).toHaveCount(5)
+  await expect(body.locator('tr').nth(0)).toContainText(formatDate(futureDate))
+  await expect(body.locator('tr').nth(0)).toContainText(`${formatKm(110000)} km`)
+  await expect(body.locator('tr').nth(0)).toContainText(`+${formatKm(8600)}`)
+  await expect(body.locator('tr').nth(0)).toContainText(`${formatKm(9999)} km/year`)
+  await expect(body.locator('tr').nth(1)).toContainText(`${formatKm(101400)} km`)
+  await expect(body.locator('tr').nth(1)).toContainText(`+${formatKm(8000)}`)
+  await expect(body.locator('tr').nth(2)).toContainText(`${formatKm(93400)} km`)
+  await expect(body.locator('tr').nth(2)).toContainText(`+${formatKm(9190)}`)
+  await expect(body.locator('tr').nth(3)).toContainText(`${formatKm(84210)} km`)
+  await expect(body.locator('tr').nth(3)).toContainText(`+${formatKm(210)}`)
+  await expect(body.locator('tr').nth(4)).toContainText(formatDate(inForceDate))
+  await expect(body.locator('tr').nth(4)).toContainText(`${formatKm(84000)} km`)
+  await expect(body.locator('tr').nth(4)).toContainText(`${formatKm(12000)} km/year`)
+  await expect(body.locator('tr').nth(4)).toContainText('—')
 })
 
-test('shows the per-record limit in a right-aligned Limit column on desktop', async ({ page }) => {
+test('shows the per-row limit in a right-aligned Limit column on desktop', async ({ page }) => {
   await page.goto('/')
 
   const dialog = await openSlideover(page, 'M - AB 1234')
@@ -157,12 +165,18 @@ test('shows the per-record limit in a right-aligned Limit column on desktop', as
   await expect(dialog.getByRole('columnheader', { name: 'Limit' })).toBeVisible()
 
   const body = dialog.locator('tbody')
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 5; index += 1) {
     const cell = body.locator('tr').nth(index).locator('td').nth(3)
     await expect(cell).toHaveClass(/text-right/)
     const span = cell.locator('span')
-    await expect(span).toHaveText(labels[index].text)
-    await expect(span).toHaveClass(new RegExp(evaluationToneClasses[labels[index].tone]))
+    if (index === 0 || index === 4) {
+      await expect(span).toHaveText('+0 km')
+      await expect(span).toHaveClass(/text-muted/)
+    } else {
+      const label = labels[index - 1]
+      await expect(span).toHaveText(label.text)
+      await expect(span).toHaveClass(new RegExp(evaluationToneClasses[label.tone]))
+    }
   }
 })
 
@@ -219,7 +233,14 @@ test('renders the lists as card lists on small screens', async ({ page }) => {
   await expect(
     mileageCards.getByText(`${formatDate(latestDate)} · +${formatKm(8000)} km · ${labels[0].text}`),
   ).toBeVisible()
-  await expect(mileageCards.getByText(`${formatDate(firstDate)} · — · ${labels[2].text}`)).toBeVisible()
+  await expect(
+    mileageCards.getByText(`${formatDate(firstDate)} · +${formatKm(210)} km · ${labels[2].text}`),
+  ).toBeVisible()
+  await expect(mileageCards.getByText(`${formatKm(9999)} km/year`)).toBeVisible()
+  await expect(
+    mileageCards.getByText(`${formatDate(futureDate)} · +${formatKm(8600)} km · +0 km`),
+  ).toBeVisible()
+  await expect(mileageCards.getByText(`${formatDate(inForceDate)} · — · +0 km`)).toBeVisible()
 
   await dialog.getByRole('tab', { name: 'Insurance' }).click()
   await expect(dialog.locator('table')).toBeHidden()

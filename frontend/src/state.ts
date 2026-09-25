@@ -11,7 +11,7 @@ import {
 } from './api/client'
 import { todayIso } from './format'
 import type { OdometerEntry } from './odometerSequence'
-import type { Car, InsuranceReport, MileageRecord, TodayEvaluation } from './types'
+import type { Car, Evaluation, InsuranceReport, MileageRecord, TodayEvaluation } from './types'
 
 export const cars = ref<Car[]>([])
 export const mileageRecords = ref<MileageRecord[]>([])
@@ -135,10 +135,34 @@ interface CarItem {
   carId: number
 }
 
+function byNewest(a: { id: number; date: string }, b: { id: number; date: string }): number {
+  return b.date.localeCompare(a.date) || b.id - a.id
+}
+
 function byCar<T extends CarItem>(list: T[], carId: number): T[] {
   return list
     .filter((item) => item.carId === carId)
-    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+    .sort(byNewest)
+}
+
+function mergedForCar<T>(
+  carId: number,
+  excludeId: number | undefined,
+  projectRecord: (record: MileageRecord) => T,
+  projectReport: (report: InsuranceReport) => T,
+): T[] {
+  const out: T[] = []
+  for (const record of mileageRecords.value) {
+    if (record.carId !== carId) continue
+    if (excludeId !== undefined && record.id === excludeId) continue
+    out.push(projectRecord(record))
+  }
+  for (const report of insuranceReports.value) {
+    if (report.carId !== carId) continue
+    if (excludeId !== undefined && report.id === excludeId) continue
+    out.push(projectReport(report))
+  }
+  return out
 }
 
 async function refreshEvaluation(carId: number): Promise<void> {
@@ -157,30 +181,59 @@ export type SequenceEntry =
   | (MileageRecord & { kind: 'record' })
   | (InsuranceReport & { kind: 'report' })
 
-export function entriesForCar(
-  carId: number,
-  excludeId?: number,
-): OdometerEntry[] {
-  const out: OdometerEntry[] = []
-  for (const record of mileageRecords.value) {
-    if (record.carId !== carId) continue
-    if (excludeId !== undefined && record.id === excludeId) continue
-    out.push({
-      id: record.id,
-      date: record.date,
-      odometerReading: record.odometerReading,
-    })
+const odometerEntry = (item: {
+  id: number
+  date: string
+  odometerReading: number
+}): OdometerEntry => ({
+  id: item.id,
+  date: item.date,
+  odometerReading: item.odometerReading,
+})
+
+export function entriesForCar(carId: number, excludeId?: number): OdometerEntry[] {
+  return mergedForCar(carId, excludeId, odometerEntry, odometerEntry)
+}
+
+export type EntryRow =
+  | (Omit<MileageRecord, 'carId'> & { kind: 'record'; evaluation: Evaluation | null })
+  | (Omit<InsuranceReport, 'carId'> & { kind: 'report' })
+
+export type RecordRow = Extract<EntryRow, { kind: 'record' }>
+
+export function timelineForCar(carId: number): EntryRow[] {
+  return mergedForCar(
+    carId,
+    undefined,
+    (record): EntryRow => ({
+      ...odometerEntry(record),
+      kind: 'record',
+      evaluation: record.evaluation ?? null,
+    }),
+    (report): EntryRow => ({
+      ...odometerEntry(report),
+      kind: 'report',
+      mileagePerYear: report.mileagePerYear,
+    }),
+  ).sort(byNewest)
+}
+
+export interface LatestEntry {
+  id: number
+  date: string
+  odometerReading: number
+  kind: 'record' | 'report'
+}
+
+export function latestEntryForCar(carId: number): LatestEntry | undefined {
+  const latest = timelineForCar(carId)[0]
+  if (!latest) return undefined
+  return {
+    id: latest.id,
+    date: latest.date,
+    odometerReading: latest.odometerReading,
+    kind: latest.kind,
   }
-  for (const report of insuranceReports.value) {
-    if (report.carId !== carId) continue
-    if (excludeId !== undefined && report.id === excludeId) continue
-    out.push({
-      id: report.id,
-      date: report.date,
-      odometerReading: report.odometerReading,
-    })
-  }
-  return out
 }
 
 export function carById(id: number | null): Car | undefined {
@@ -189,20 +242,6 @@ export function carById(id: number | null): Car | undefined {
 
 export function latestRecord(carId: number): MileageRecord | undefined {
   return recordsForCar(carId)[0]
-}
-
-export interface MileageRow extends MileageRecord {
-  delta: number | null
-}
-
-export function mileageRowsForCar(carId: number): MileageRow[] {
-  const records = recordsForCar(carId)
-  return records.map((record, index) => ({
-    ...record,
-    delta: records[index + 1]
-      ? record.odometerReading - records[index + 1].odometerReading
-      : null,
-  }))
 }
 
 export function currentReport(carId: number): InsuranceReport | undefined {
