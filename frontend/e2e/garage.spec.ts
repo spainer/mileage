@@ -522,4 +522,147 @@ test.describe('Garage', () => {
     await expect(reportCard.getByText(formatKm(ANNUAL_MILEAGE_CAP))).toBeVisible()
     await expect(reportCard).toContainText('1 reading · 1 report')
   })
+
+  test('keeps the merged timeline, the dedicated cap list, and the Garage card coherent across tabs', async ({ page }) => {
+    const license = randomLicense()
+    await seedCar('Skoda', 'Octavia', license)
+    const car = await findCarByLicense(license)
+    await request(`/cars/${car.id}/insurance-reports`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: oneYearBeforeToday(),
+        odometer_reading: REPORTED_READING,
+        mileage_per_year: ANNUAL_MILEAGE_CAP,
+      }),
+    })
+    await request(`/cars/${car.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: todayIso(), odometer_reading: READING }),
+    })
+
+    await page.goto('/')
+    const slideover = await openSlideover(page, license)
+    await expect(slideover).toBeVisible()
+
+    const rows = slideover.locator('tbody tr')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(0)).toContainText(formatDate(todayIso()))
+    await expect(rows.nth(0)).toContainText(`${formatKm(READING)} km`)
+    await expect(rows.nth(1)).toContainText(formatDate(oneYearBeforeToday()))
+    await expect(rows.nth(1)).toContainText(`${formatKm(REPORTED_READING)} km`)
+    await expect(rows.nth(1)).toContainText(`${formatKm(ANNUAL_MILEAGE_CAP)} km/year`)
+    await expect(
+      slideover.getByText(`Latest: ${formatKm(READING)} km on ${formatDate(todayIso())}`),
+    ).toBeVisible()
+    await expect(slideover.getByRole('button', { name: 'Add reading' })).toBeVisible()
+    await expect(slideover.getByRole('button', { name: 'Add report' })).toHaveCount(0)
+
+    await slideover.getByRole('tab', { name: 'Insurance' }).click()
+    const reportRows = slideover.locator('tbody tr')
+    await expect(reportRows).toHaveCount(1)
+    await expect(reportRows.nth(0)).toContainText(`${formatKm(REPORTED_READING)} km`)
+    await expect(reportRows.nth(0)).toContainText(formatKm(ANNUAL_MILEAGE_CAP))
+    await expect(reportRows.getByText('In force')).toBeVisible()
+    await expect(slideover.getByRole('button', { name: 'Add report' })).toBeVisible()
+    await expect(slideover.getByRole('button', { name: 'Add reading' })).toHaveCount(0)
+
+    await page.mouse.click(10, 400)
+    await expect(slideover).toBeHidden()
+
+    const card = cardFor(page, license)
+    await expect(card).toBeVisible()
+    await expect(card.getByText(`${formatKm(READING)} km`)).toBeVisible()
+    await expect(card.getByText(formatDate(todayIso()))).toBeVisible()
+    await expect(card.getByText('Cap reset')).toHaveCount(0)
+    await expect(card).toContainText('1 reading · 1 report')
+  })
+
+  test('propagates a deletion from the merged list to the dedicated list and the Garage card', async ({ page }) => {
+    const license = randomLicense()
+    await seedCar('Renault', 'Megane', license)
+    const car = await findCarByLicense(license)
+    await request(`/cars/${car.id}/mileage-records`, {
+      method: 'POST',
+      body: JSON.stringify({ date: oneYearBeforeToday(), odometer_reading: 20_000 }),
+    })
+    const reportReading = 38_000
+    await request(`/cars/${car.id}/insurance-reports`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: todayIso(),
+        odometer_reading: reportReading,
+        mileage_per_year: ANNUAL_MILEAGE_CAP,
+      }),
+    })
+
+    await page.goto('/')
+
+    const card = cardFor(page, license)
+    await expect(card).toBeVisible()
+    await expect(card.getByText(`${formatKm(reportReading)} km`)).toBeVisible()
+    await expect(card.getByText('Cap reset')).toBeVisible()
+    await expect(card).toContainText('1 reading · 1 report')
+
+    const slideover = await openSlideover(page, license)
+    await expect(slideover).toBeVisible()
+
+    const rows = slideover.locator('tbody tr')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(0)).toContainText(formatDate(todayIso()))
+    await expect(rows.nth(0)).toContainText(`${formatKm(ANNUAL_MILEAGE_CAP)} km/year`)
+    await expect(rows.nth(1)).toContainText(`${formatKm(20_000)} km`)
+
+    await rows.nth(0).getByRole('button', { name: 'Edit report' }).click()
+    const reportModal = page.getByRole('dialog', { name: 'Edit report' })
+    await expect(reportModal).toBeVisible()
+    await reportModal.getByRole('button', { name: 'Delete' }).click()
+    const confirmDialog = page.getByRole('dialog', { name: 'Delete report' })
+    await expect(confirmDialog).toBeVisible()
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click()
+
+    await expect(confirmDialog).toBeHidden()
+    await expect(reportModal).toBeHidden()
+    await expect(slideover.locator('tbody tr')).toHaveCount(1)
+    await expect(slideover.locator('tbody tr').first()).toContainText(`${formatKm(20_000)} km`)
+    await expect(
+      slideover.getByText(`Latest: ${formatKm(20_000)} km on ${formatDate(oneYearBeforeToday())}`),
+    ).toBeVisible()
+
+    await slideover.getByRole('tab', { name: 'Insurance' }).click()
+    await expect(slideover.getByText('No insurance reports yet.').first()).toBeVisible()
+    await expect(slideover.getByText('no report yet')).toBeVisible()
+
+    await page.mouse.click(10, 400)
+    await expect(slideover).toBeHidden()
+
+    await expect(card.getByText(`${formatKm(20_000)} km`)).toBeVisible()
+    await expect(card.getByText(formatDate(oneYearBeforeToday()))).toBeVisible()
+    await expect(card.getByText('Cap reset')).toHaveCount(0)
+    await expect(card).toContainText('1 reading · 0 reports')
+
+    await page.goto('/')
+    const reopened = await openSlideover(page, license)
+    await expect(reopened).toBeVisible()
+    const readingRow = reopened.locator('tbody tr').first()
+    await expect(readingRow).toContainText(`${formatKm(20_000)} km`)
+    await readingRow.getByRole('button', { name: 'Edit reading' }).click()
+    const recordModal = page.getByRole('dialog', { name: 'Edit reading' })
+    await expect(recordModal).toBeVisible()
+    await recordModal.getByRole('button', { name: 'Delete' }).click()
+    const readingConfirm = page.getByRole('dialog', { name: 'Delete reading' })
+    await expect(readingConfirm).toBeVisible()
+    await readingConfirm.getByRole('button', { name: 'Delete' }).click()
+
+    await expect(readingConfirm).toBeHidden()
+    await expect(recordModal).toBeHidden()
+    await expect(reopened.getByText('No readings yet')).toBeVisible()
+    await expect(reopened.getByText('No mileage readings yet.').first()).toBeVisible()
+
+    await page.mouse.click(10, 400)
+    await expect(reopened).toBeHidden()
+
+    await expect(card.getByText(`${formatKm(20_000)} km`)).toHaveCount(0)
+    await expect(card.getByText('Cap reset')).toHaveCount(0)
+    await expect(card).toContainText('0 readings · 0 reports')
+  })
 })

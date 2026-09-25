@@ -57,3 +57,4 @@ _Avoid_: current status, snapshot verdict
 - An **Evaluation** exists for a **Mileage Record** when an **Insurance Report** is in force at the record's date; it is the record's **Odometer Reading** minus the **Theoretical Limit** at that date.
 - A **Today's Evaluation** is derived from a **Car**'s latest **Mileage Record** and the **Theoretical Limit** at today's date; it has no gap when the **Car** has no **Mileage Records**.
 - The **Odometer Reading** of a **Car**'s entries never decreases over time: an entry's reading is at least as high as every entry dated before it, no higher than every entry dated after it, and exactly equal to every entry sharing its date. The **Car**'s **Mileage Records** and **Insurance Reports** are considered together for this rule.
+- The *displayed* timeline of a **Car** is the union of its **Mileage Records** and **Insurance Reports**, sorted by date, with report rows annotated by their **Annual Mileage Cap**.
