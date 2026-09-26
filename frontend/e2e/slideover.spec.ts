@@ -77,7 +77,111 @@ async function seed(): Promise<void> {
 
 async function openSlideover(page: Page, plate: string) {
   await page.locator('[role="button"]', { hasText: plate }).click()
-  return page.getByRole('dialog')
+  return page.getByRole('dialog').filter({ hasText: plate })
+}
+
+interface SlideoverProbeNodes {
+  panel: Element
+  backdrop: Element
+}
+
+declare global {
+  interface Window {
+    __slideoverProbe?: SlideoverProbeNodes
+  }
+}
+
+interface SlideoverCloseObservation {
+  /** The panel was still mounted in samples taken after the closure committed. */
+  panelLingered: boolean
+  /** The backdrop was still mounted in samples taken after the closure committed. */
+  backdropLingered: boolean
+  /** The panel and backdrop eventually left the document. */
+  closed: boolean
+  /** The closure committed (the address returned to the garage). */
+  committed: boolean
+}
+
+/**
+ * #51: remembers the slideover's panel and backdrop nodes while it is open.
+ * They are identified by the license plate rendered in the panel; node
+ * references are needed because the route-driven closure empties the panel
+ * content (and with it the plate) before the nodes unmount. The backdrop is
+ * the overlay rendered directly in front of the panel in the portal.
+ */
+async function rememberSlideoverNodes(
+  page: Page,
+  formattedPlate: string,
+): Promise<void> {
+  await page.evaluate((formattedPlate: string) => {
+    const panel = Array.from(document.querySelectorAll('[role="dialog"]')).find(
+      (dialog) => (dialog.textContent ?? '').includes(formattedPlate),
+    )
+    if (!panel || !panel.previousElementSibling) {
+      throw new Error('slideover panel or backdrop not found')
+    }
+    window.__slideoverProbe = { panel, backdrop: panel.previousElementSibling }
+  }, formattedPlate)
+}
+
+/**
+ * #51: runs in the page, sampling the remembered slideover nodes every 5ms
+ * until they are gone (or the deadline passes). While a closing animation
+ * plays, the component library keeps the panel and its backdrop mounted, so
+ * a sample observing them after the closure committed is direct evidence of
+ * a closing animation.
+ */
+function observeSlideoverClose(): Promise<SlideoverCloseObservation> {
+  return new Promise((resolve) => {
+    const probe = window.__slideoverProbe
+    if (!probe) throw new Error('slideover nodes were not remembered')
+    let committed = false
+    let panelLingered = false
+    let backdropLingered = false
+    // 5s, matching Playwright's default assertion timeout: it caps only the
+    // failure case (a closure that never completes), so a slow route-driven
+    // closure (e.g. the DELETE request) is measured, not failed.
+    const deadline = performance.now() + 5000
+    const timer = setInterval(() => {
+      const panelPresent = probe.panel.isConnected
+      const backdropPresent = probe.backdrop.isConnected
+      if (location.pathname === '/') {
+        committed = true
+        if (panelPresent) panelLingered = true
+        if (backdropPresent) backdropLingered = true
+      }
+      if ((!panelPresent && !backdropPresent) || performance.now() > deadline) {
+        clearInterval(timer)
+        resolve({
+          panelLingered,
+          backdropLingered,
+          closed: !panelPresent && !backdropPresent,
+          committed,
+        })
+      }
+    }, 5)
+  })
+}
+
+/**
+ * Remembers the open slideover's nodes, starts sampling the page, runs the
+ * closing action, then asserts that the slideover closed without its panel
+ * or backdrop lingering afterwards.
+ */
+async function expectNoClosingAnimation(
+  page: Page,
+  formattedPlate: string,
+  close: () => Promise<void> | void,
+): Promise<void> {
+  await rememberSlideoverNodes(page, formattedPlate)
+  const observation = page.evaluate(observeSlideoverClose)
+  await close()
+  expect(await observation).toEqual({
+    panelLingered: false,
+    backdropLingered: false,
+    closed: true,
+    committed: true,
+  })
 }
 
 interface WireMileageRecord {
@@ -119,6 +223,27 @@ test('clicking a card opens the slideover with the plate as title and the car la
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('M - AB 1234')).toBeVisible()
   await expect(dialog.getByText('Volkswagen Golf')).toBeVisible()
+})
+
+test('opens without an animation', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+
+  // #51: the slideover runs with transitions disabled — removing the closing
+  // animation dropped the opening transition along with it (approved
+  // deviation from the original spec; see CarSlideover.vue).
+  await rememberSlideoverNodes(page, 'M - AB 1234')
+  const animationNames = await page.evaluate(() => {
+    const probe = window.__slideoverProbe
+    if (!probe) throw new Error('slideover nodes were not remembered')
+    return {
+      panel: getComputedStyle(probe.panel).animationName,
+      backdrop: getComputedStyle(probe.backdrop).animationName,
+    }
+  })
+  expect(animationNames).toEqual({ panel: 'none', backdrop: 'none' })
 })
 
 test('opening a card pushes the car\'s URL', async ({ page }) => {
@@ -259,9 +384,10 @@ test('closes with Escape and returns to the garage address', async ({ page }) =>
     const d = document.querySelector('[role="dialog"]')
     return !!d && d.contains(document.activeElement)
   })
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
+  await expectNoClosingAnimation(page, 'M - AB 1234', () => page.keyboard.press('Escape'))
+
   await expect(page).toHaveURL('/')
+  await expect(dialog).toBeHidden()
 })
 
 test('closes with a backdrop click and returns to the garage address', async ({ page }) => {
@@ -270,9 +396,10 @@ test('closes with a backdrop click and returns to the garage address', async ({ 
   const dialog = await openSlideover(page, 'M - AB 1234')
   await expect(page).toHaveURL(`/cars/${carId}`)
 
-  await page.mouse.click(100, 400)
-  await expect(dialog).toBeHidden()
+  await expectNoClosingAnimation(page, 'M - AB 1234', () => page.mouse.click(100, 400))
+
   await expect(page).toHaveURL('/')
+  await expect(dialog).toBeHidden()
 })
 
 test('native browser back closes the slideover and returns to the garage', async ({ page }) => {
@@ -280,9 +407,37 @@ test('native browser back closes the slideover and returns to the garage', async
   await openSlideover(page, 'M - AB 1234')
   await expect(page).toHaveURL(`/cars/${carId}`)
 
-  await page.goBack()
-  await expect(page.getByRole('dialog')).toBeHidden()
+  await expectNoClosingAnimation(page, 'M - AB 1234', () => page.goBack())
+
   await expect(page).toHaveURL('/')
+  await expect(page.getByRole('dialog')).toBeHidden()
+})
+
+test('deleting the car closes the slideover immediately, without a closing animation', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(page).toHaveURL(`/cars/${carId}`)
+
+  await dialog.getByRole('button', { name: 'Edit car' }).click()
+  const editModal = page.getByRole('dialog', { name: 'Edit car' })
+  await expect(editModal).toBeVisible()
+  await editModal.getByRole('button', { name: 'Delete' }).click()
+  const confirmDialog = page.getByRole('dialog', { name: 'Delete car' })
+  await expect(confirmDialog).toBeVisible()
+
+  await expectNoClosingAnimation(
+    page,
+    'M - AB 1234',
+    () => confirmDialog.getByRole('button', { name: 'Delete' }).click(),
+  )
+
+  await expect(page).toHaveURL('/')
+  await expect(editModal).toBeHidden()
+  await expect(confirmDialog).toBeHidden()
+  await expect(dialog).toBeHidden()
 })
 
 test('a deep link to a known car opens the slideover', async ({ page }) => {

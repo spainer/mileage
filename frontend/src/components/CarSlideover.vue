@@ -35,9 +35,14 @@ watch(
 </script>
 
 <template>
+  <!-- #51: the panel and backdrop must close without an animation on every
+       close path. The library's transition prop gates opening and closing
+       alike, so the opening transition is removed along with it
+       (owner-approved relaxation of #50). -->
   <USlideover
     :open="car !== null"
     :close="false"
+    :transition="false"
     :description="car ? carLabel(car) : ''"
     class="w-full max-w-lg pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
     @update:open="onOpenChange"
