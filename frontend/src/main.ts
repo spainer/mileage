@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
+import { handleStaleAssetError, installStaleAssetRecovery } from './appRecovery'
 import { applyTheme } from './theme'
 import './assets/main.css'
 
@@ -22,6 +23,16 @@ const router = createRouter({
 })
 
 applyTheme()
+
+installStaleAssetRecovery()
+
+// A failed load of a lazy route component does not surface as an unhandled
+// rejection: the router handles the navigation failure itself. This handler
+// is where such failures are reported, so stale-asset recovery is wired in
+// here as well.
+router.onError((error) => {
+  handleStaleAssetError(error)
+})
 
 const app = createApp(App)
 app.use(ui)
