@@ -1,4 +1,5 @@
 from pathlib import Path, PurePath
+from typing import Any, Callable
 
 from litestar import Litestar, Router, get
 from litestar.exceptions import NotFoundException
@@ -15,6 +16,56 @@ from src.routes.insurance_reports import insurance_reports_router
 from src.routes.mileage_records import mileage_records_router
 from src.settings import settings
 
+# The app shell and manifest must be revalidated on every use so that a launch
+# always discovers the deployed frontend version. Fingerprinted assets are safe
+# to cache for their whole versioned lifetime.
+_REVALIDATE_CACHE_CONTROL = "no-cache, must-revalidate"
+_VERSIONED_CACHE_CONTROL = "public, max-age=31536000, immutable"
+_NO_STORE_CACHE_CONTROL = "no-store"
+
+_FINGERPRINTED_ASSETS_PREFIX = "assets/"
+
+
+def cache_control_for(path: str) -> str:
+    path = path.lstrip("/")
+    if path == "index.html":
+        return _REVALIDATE_CACHE_CONTROL
+    if path.startswith(_FINGERPRINTED_ASSETS_PREFIX):
+        return _VERSIONED_CACHE_CONTROL
+    return _REVALIDATE_CACHE_CONTROL
+
+
+class ApiCacheControlMiddleware:
+    """Keep API responses out of browser HTTP caches so app startup always reads current data."""
+
+    def __init__(self, app: Any, path_prefix: str = "/api") -> None:
+        self._app = app
+        self._prefix = path_prefix
+
+    def _is_api(self, path: str) -> bool:
+        return path == self._prefix or path.startswith(self._prefix + "/")
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope.get("type") != "http" or not self._is_api(scope.get("path", "")):
+            await self._app(scope, receive, send)
+            return
+
+        async def send_with_cache_control(message: dict) -> None:
+            if message.get("type") == "http.response.start":
+                _set_header(message["headers"], "cache-control", _NO_STORE_CACHE_CONTROL)
+            await send(message)
+
+        await self._app(scope, receive, send_with_cache_control)
+
+
+def _set_header(headers: list[tuple[bytes, bytes]], name: str, value: str) -> None:
+    encoded_name = name.encode("latin-1")
+    for index, (header_name, _) in enumerate(headers):
+        if header_name.lower() == encoded_name:
+            headers[index] = (header_name, value.encode("latin-1"))
+            return
+    headers.append((encoded_name, value.encode("latin-1")))
+
 
 @get("/health", sync_to_thread=False)
 def health_check() -> dict[str, str]:
@@ -29,7 +80,9 @@ def create_spa_router(static_dir: Path) -> Router:
     )
 
     async def serve(path: str) -> ASGIFileResponse:
-        return await static_files.handle(path=path, is_head_response=False)
+        response = await static_files.handle(path=path, is_head_response=False)
+        response.headers["cache-control"] = cache_control_for(path)
+        return response
 
     @get("/", name="app-shell")
     async def app_shell() -> ASGIFileResponse:
@@ -63,6 +116,7 @@ def create_app(static_dir: Path | None) -> Litestar:
         route_handlers.append(create_spa_router(static_dir))
     return Litestar(
         route_handlers=route_handlers,
+        middleware=[(ApiCacheControlMiddleware, {"path_prefix": "/api"})],
         lifespan=[lifespan],
         openapi_config=OpenAPIConfig(
             title="Mileage API",
