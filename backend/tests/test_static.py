@@ -4,6 +4,7 @@ import pytest
 
 SHELL = '<!doctype html><html><head><title>Mileage</title></head><body><div id="app"></div></body></html>'
 ASSET = "console.log('mileage');"
+MANIFEST = '{"name": "Mileage"}'
 
 
 @pytest.fixture
@@ -12,6 +13,7 @@ def static_dir(tmp_path) -> Path:
     (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text(SHELL)
     (dist / "assets" / "app.js").write_text(ASSET)
+    (dist / "manifest.webmanifest").write_text(MANIFEST)
     return dist
 
 
@@ -49,6 +51,43 @@ def test_missing_top_level_asset_returns_404(client):
     response = client.get("/favicon.ico")
 
     assert response.status_code == 404
+
+
+def test_root_app_shell_is_not_trusted_from_cache(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_extensionless_client_side_route_shell_is_not_trusted_from_cache(client):
+    response = client.get("/garage")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_manifest_is_not_trusted_from_cache(client):
+    response = client.get("/manifest.webmanifest")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_fingerprinted_asset_stays_cached_for_its_version(client):
+    response = client.get("/assets/app.js")
+
+    assert response.status_code == 200
+    cache_control = response.headers["cache-control"]
+    assert "max-age=31536000" in cache_control
+    assert "immutable" in cache_control
+
+
+def test_api_responses_are_not_stored_in_http_caches(client):
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_api_routes_work_with_static_dir_present(client):
