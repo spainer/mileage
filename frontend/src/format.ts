@@ -1,3 +1,4 @@
+import { i18n, locale } from './i18n'
 import type { Car, Evaluation, EvaluationLabel, TodayEvaluation } from './types'
 
 export function isoLocalDate(date: Date): string {
@@ -10,16 +11,18 @@ export function todayIso(): string {
   return isoLocalDate(new Date())
 }
 
+// Presentation only: the ISO date stays the storage/API representation.
 export function formatDate(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('de-DE', {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(locale.value, {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   })
 }
 
+// Presentation only: the number stays the storage/API representation.
 export function formatKm(value: number): string {
-  return new Intl.NumberFormat('de-DE').format(value)
+  return new Intl.NumberFormat(locale.value).format(value)
 }
 
 export function deltaLabel(delta: number): string {
@@ -41,12 +44,12 @@ export function evaluationLabel(
     return { text: '—', tone: 'none' }
   }
   if (evaluation.delta > 0) {
-    return { text: `${formatKm(evaluation.delta)} km over`, tone: 'over' }
+    return { text: i18n.global.t('evaluation.over', { km: formatKm(evaluation.delta) }), tone: 'over' }
   }
   if (evaluation.delta < 0) {
-    return { text: `${formatKm(-evaluation.delta)} km under`, tone: 'under' }
+    return { text: i18n.global.t('evaluation.under', { km: formatKm(-evaluation.delta) }), tone: 'under' }
   }
-  return { text: 'On limit', tone: 'on-limit' }
+  return { text: i18n.global.t('evaluation.onLimit'), tone: 'on-limit' }
 }
 
 export function errorMessage(err: unknown): string {

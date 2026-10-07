@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   carLabel,
@@ -11,38 +11,74 @@ import {
   normalizeLicense,
   todayIso,
 } from '../format'
+import { setLocale } from '../i18n'
 import type { Evaluation, TodayEvaluation } from '../types'
 
+beforeEach(() => {
+  localStorage.clear()
+  setLocale('en')
+})
+
+afterEach(() => {
+  setLocale('en')
+  localStorage.clear()
+})
+
 describe('formatDate', () => {
-  it('formats an ISO date as a de-DE short date', () => {
+  it('formats an ISO date as a de-DE short date in German', () => {
+    setLocale('de')
     expect(formatDate('2026-08-30')).toBe('30.08.2026')
   })
 
-  it('zero-pads single-digit months and days', () => {
+  it('zero-pads single-digit months and days in German', () => {
+    setLocale('de')
     expect(formatDate('2026-01-05')).toBe('05.01.2026')
+  })
+
+  it('formats an ISO date as a short date in English', () => {
+    expect(formatDate('2026-08-30')).toBe('08/30/2026')
   })
 })
 
 describe('formatKm', () => {
-  it('groups thousands with the de-DE separator', () => {
+  it('groups thousands with the German separator in German', () => {
+    setLocale('de')
     expect(formatKm(101400)).toBe('101.400')
   })
 
+  it('groups thousands with the English separator in English', () => {
+    expect(formatKm(101400)).toBe('101,400')
+  })
+
   it('leaves values below 1000 untouched', () => {
+    expect(formatKm(42)).toBe('42')
+    setLocale('de')
     expect(formatKm(42)).toBe('42')
   })
 })
 
 describe('deltaLabel', () => {
-  it('renders a positive delta with a leading plus', () => {
+  it('renders a positive delta with a leading plus in German', () => {
+    setLocale('de')
     expect(deltaLabel(17190)).toBe('+17.190')
   })
 
-  it('renders a negative delta with the signed de-DE format', () => {
+  it('renders a negative delta with the signed format in German', () => {
+    setLocale('de')
     expect(deltaLabel(-4210)).toBe('-4.210')
   })
 
+  it('renders a positive delta with a leading plus in English', () => {
+    expect(deltaLabel(17190)).toBe('+17,190')
+  })
+
+  it('renders a negative delta with the signed format in English', () => {
+    expect(deltaLabel(-4210)).toBe('-4,210')
+  })
+
   it('renders a zero delta without a sign', () => {
+    expect(deltaLabel(0)).toBe('0')
+    setLocale('de')
     expect(deltaLabel(0)).toBe('0')
   })
 })
@@ -128,22 +164,44 @@ describe('evaluationLabel', () => {
   it('renders a missing evaluation as a neutral dash', () => {
     expect(evaluationLabel(null)).toEqual({ text: '—', tone: 'none' })
     expect(evaluationLabel(undefined)).toEqual({ text: '—', tone: 'none' })
+    setLocale('de')
+    expect(evaluationLabel(null)).toEqual({ text: '—', tone: 'none' })
   })
 
-  it('renders a positive delta as an over label', () => {
+  it('renders a positive delta as an over label in English', () => {
     expect(evaluationLabel(evaluation(500))).toEqual({ text: '500 km over', tone: 'over' })
   })
 
-  it('formats a four-digit over label with the German thousand separator', () => {
-    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1.500 km over', tone: 'over' })
+  it('formats a four-digit over label with the English thousand separator', () => {
+    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1,500 km over', tone: 'over' })
   })
 
-  it('renders a negative delta as an under label', () => {
+  it('renders a negative delta as an under label in English', () => {
     expect(evaluationLabel(evaluation(-500))).toEqual({ text: '500 km under', tone: 'under' })
   })
 
-  it('renders a zero delta as an on-limit label', () => {
+  it('renders a zero delta as an on-limit label in English', () => {
     expect(evaluationLabel(evaluation(0))).toEqual({ text: 'On limit', tone: 'on-limit' })
+  })
+
+  it('renders a positive delta as an over label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(500))).toEqual({ text: '500 km über', tone: 'over' })
+  })
+
+  it('formats a four-digit over label with the German thousand separator', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1.500 km über', tone: 'over' })
+  })
+
+  it('renders a negative delta as an under label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(-500))).toEqual({ text: '500 km unter', tone: 'under' })
+  })
+
+  it('renders a zero delta as an on-limit label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(0))).toEqual({ text: 'Am Limit', tone: 'on-limit' })
   })
 
   it('accepts a per-record Evaluation', () => {
