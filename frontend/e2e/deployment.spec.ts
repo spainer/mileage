@@ -30,7 +30,7 @@ const VIEW_CHUNK_NAME_PATTERN = new RegExp(`${VIEW_CHUNK_PREFIX}-[A-Za-z0-9_-]+\
  *   cached iOS home-screen app) references a lazy view chunk the origin no
  *   longer serves. Loading that shell fails its lazy import.
  * - v2: the finished deployment, healthy end to end, with the renamed view
- *   chunk and a version marker in the document title.
+ *   chunk and a version marker on the document element.
  */
 interface Deployment {
   rootDir: string
@@ -120,11 +120,14 @@ async function buildDeploymentVersions(): Promise<Deployment> {
   }
   writeFileSync(entryPath, entry)
 
-  // A visible marker that the deployment switched versions.
+  // A marker that the deployment switched versions. It lives on the document
+  // element, not in document.title: the app rewrites the title from its i18n
+  // catalog as soon as the entry chunk evaluates, so a title marker is only
+  // observable for a few milliseconds and the assertion would race it.
   const indexHtmlPath = join(v2Dir, 'index.html')
   writeFileSync(
     indexHtmlPath,
-    readFileSync(indexHtmlPath, 'utf8').replace('<title>Mileage</title>', '<title>Mileage v2</title>'),
+    readFileSync(indexHtmlPath, 'utf8').replace('<html lang="en">', '<html lang="en" data-deployment="v2">'),
   )
 
   return {
@@ -297,7 +300,7 @@ test.describe('Deployment', () => {
     await startPreview(d.v2Dir)
     await waitForHttp(`${PREVIEW_URL}/`)
     await fallback.locator('button').click()
-    await expect(page).toHaveTitle('Mileage v2', { timeout: 30_000 })
+    await expect(page.locator('html')).toHaveAttribute('data-deployment', 'v2', { timeout: 30_000 })
     await expect(page.getByRole('heading', { name: 'Garage' })).toBeVisible()
     await expect.poll(() => chunkResponses.get(chunkUrl(d.freshChunkPath))).toBe(200)
     await expect(page.locator('#app-recovery-fallback')).toHaveCount(0)
