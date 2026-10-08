@@ -1,6 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { formatDate, formatKm, formatPlate, isoLocalDate, todayIso } from '../src/format'
+import {
+  evaluationLabel,
+  formatDate,
+  formatKm,
+  formatPlate,
+  isoLocalDate,
+  todayIso,
+} from '../src/format'
 import { setLocale } from '../src/i18n'
 import { LANGUAGE_STORAGE_KEY } from '../src/i18n/language'
 
@@ -274,6 +281,178 @@ async function expectRegionalMapping(
   await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
 }
 
+// What the car details slideover must say in each language: the tabs, the
+// formatted summaries and table values, the status labels, the empty states,
+// and the accessible names of the actions.
+interface CarDetailsExpectations {
+  mileageTab: string
+  insuranceTab: string
+  latest: string
+  latestOn: (date: string) => string
+  noReadings: string
+  noMileage: string
+  addReading: string
+  editReading: string
+  dateHeader: string
+  readingHeader: string
+  sinceLastHeader: string
+  limitHeader: string
+  capPerYear: string
+  kmPerYear: string
+  inForce: string
+  noReportYet: string
+  noReports: string
+  addReport: string
+  editReport: string
+  editCar: string
+  atReading: (km: string) => string
+}
+
+const CAR_DETAILS_EN: CarDetailsExpectations = {
+  mileageTab: 'Mileage',
+  insuranceTab: 'Insurance',
+  latest: 'Latest',
+  latestOn: (date) => `on ${date}`,
+  noReadings: 'No readings yet',
+  noMileage: 'No mileage readings yet.',
+  addReading: 'Add reading',
+  editReading: 'Edit reading',
+  dateHeader: 'Date',
+  readingHeader: 'Reading',
+  sinceLastHeader: 'Since last',
+  limitHeader: 'Limit',
+  capPerYear: 'Cap / year',
+  kmPerYear: 'km/year',
+  inForce: 'In force',
+  noReportYet: 'no report yet',
+  noReports: 'No insurance reports yet.',
+  addReport: 'Add report',
+  editReport: 'Edit report',
+  editCar: 'Edit car',
+  atReading: (km) => `at ${km} km`,
+}
+
+const CAR_DETAILS_DE: CarDetailsExpectations = {
+  mileageTab: 'Erfassungen',
+  insuranceTab: 'Versicherung',
+  latest: 'Letzter Stand',
+  latestOn: (date) => `am ${date}`,
+  noReadings: 'Noch keine Erfassungen',
+  noMileage: 'Noch keine Erfassungen.',
+  addReading: 'Erfassung hinzufügen',
+  editReading: 'Erfassung bearbeiten',
+  dateHeader: 'Datum',
+  readingHeader: 'Erfassung',
+  sinceLastHeader: 'Seit letzter',
+  limitHeader: 'Limit',
+  capPerYear: 'Limit / Jahr',
+  kmPerYear: 'km/Jahr',
+  inForce: 'In Kraft',
+  noReportYet: 'noch kein Bericht',
+  noReports: 'Noch keine Berichte.',
+  addReport: 'Bericht hinzufügen',
+  editReport: 'Bericht bearbeiten',
+  editCar: 'Auto bearbeiten',
+  atReading: (km) => `bei ${km} km`,
+}
+
+// Opens the seeded car's slideover and checks the details surface in the
+// selected language: the tabs, the Latest summary and the timeline table with
+// its formatted dates and numbers, the In force summary and badge, the mobile
+// presentation, and the accessible names of the actions.
+async function expectCarDetails(
+  page: Page,
+  license: string,
+  ex: CarDetailsExpectations,
+): Promise<void> {
+  await cardFor(page, license).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  const evaluation = evaluationLabel({ theoreticalLimit: THEORETICAL_LIMIT, delta: OVER_BY })
+
+  await expect(dialog.getByRole('button', { name: ex.editCar })).toBeVisible()
+  await expect(dialog.getByRole('tab', { name: ex.mileageTab })).toBeVisible()
+  await expect(dialog.getByRole('tab', { name: ex.insuranceTab })).toBeVisible()
+
+  // The mileage tab, active by default: the summary line and the timeline
+  // table with its formatted values.
+  await expect(
+    dialog
+      .getByText(`${ex.latest}: ${formatKm(READING)} km ${ex.latestOn(formatDate(todayIso()))}`)
+      .first(),
+  ).toBeVisible()
+  await expect(dialog.getByRole('columnheader', { name: ex.dateHeader })).toBeVisible()
+  await expect(dialog.getByRole('columnheader', { name: ex.readingHeader })).toBeVisible()
+  await expect(dialog.getByRole('columnheader', { name: ex.sinceLastHeader })).toBeVisible()
+  await expect(dialog.getByRole('columnheader', { name: ex.limitHeader })).toBeVisible()
+
+  const body = dialog.locator('tbody')
+  await expect(body.locator('tr')).toHaveCount(2)
+  await expect(body.locator('tr').nth(0)).toContainText(formatDate(todayIso()))
+  await expect(body.locator('tr').nth(0)).toContainText(`${formatKm(READING)} km`)
+  await expect(body.locator('tr').nth(0)).toContainText(
+    `+${formatKm(READING - REPORTED_READING)}`,
+  )
+  await expect(body.locator('tr').nth(0)).toContainText(evaluation.text)
+  await expect(body.locator('tr').nth(1)).toContainText(formatDate(oneYearBeforeToday()))
+  await expect(body.locator('tr').nth(1)).toContainText(`${formatKm(REPORTED_READING)} km`)
+  await expect(body.locator('tr').nth(1)).toContainText(
+    `${formatKm(ANNUAL_MILEAGE_CAP)} ${ex.kmPerYear}`,
+  )
+  await expect(body.locator('tr').nth(1)).toContainText('—')
+  await expect(body.locator('tr').nth(1)).toContainText('+0 km')
+
+  // The mobile presentation of the same values, hidden at this viewport.
+  await expect(dialog.locator('div.md\\:hidden')).toContainText(
+    `${formatDate(todayIso())} · +${formatKm(READING - REPORTED_READING)} km · ${evaluation.text}`,
+  )
+
+  await expect(dialog.getByRole('button', { name: ex.addReading })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: ex.editReading }).first()).toBeVisible()
+  await expect(dialog.getByRole('button', { name: ex.editReport }).first()).toBeVisible()
+
+  // The insurance tab.
+  await dialog.getByRole('tab', { name: ex.insuranceTab }).click()
+  await expect(dialog.getByRole('columnheader', { name: ex.capPerYear })).toBeVisible()
+  await expect(
+    dialog.getByText(`${ex.inForce}: ${formatKm(ANNUAL_MILEAGE_CAP)} ${ex.kmPerYear}`).first(),
+  ).toBeVisible()
+
+  const reportBody = dialog.locator('tbody')
+  await expect(reportBody.locator('tr')).toHaveCount(1)
+  await expect(reportBody.locator('tr')).toContainText(formatDate(oneYearBeforeToday()))
+  await expect(reportBody.locator('tr')).toContainText(`${formatKm(REPORTED_READING)} km`)
+  await expect(reportBody.locator('tr').getByText(ex.inForce, { exact: true })).toBeVisible()
+  await expect(dialog.locator('div.md\\:hidden')).toContainText(
+    `${formatDate(oneYearBeforeToday())} · ${ex.atReading(formatKm(REPORTED_READING))}`,
+  )
+
+  await expect(dialog.getByRole('button', { name: ex.addReport })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: ex.editReport }).first()).toBeVisible()
+}
+
+// The slideover of a seeded car without records or reports: the empty states
+// and the add actions in the selected language.
+async function expectCarDetailsEmptyStates(
+  page: Page,
+  license: string,
+  ex: CarDetailsExpectations,
+): Promise<void> {
+  await cardFor(page, license).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  await expect(dialog.getByText(ex.noReadings, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(ex.noMileage, { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByRole('button', { name: ex.addReading })).toBeVisible()
+
+  await dialog.getByRole('tab', { name: ex.insuranceTab }).click()
+  await expect(dialog.getByText(ex.noReportYet, { exact: true })).toBeVisible()
+  await expect(dialog.getByText(ex.noReports, { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByRole('button', { name: ex.addReport })).toBeVisible()
+}
+
 test.describe('Localization', () => {
   test.afterEach(() => {
     setLocale('en')
@@ -403,6 +582,23 @@ test.describe('Localization', () => {
       // the selector stays visible but is not clickable (tracked in #62).
       await expect(page.getByLabel('Language')).toBeVisible()
     })
+
+    test('shows the car details in English', async ({ page }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await page.goto('/')
+      await expectCarDetails(page, license, CAR_DETAILS_EN)
+    })
+
+    test('shows the car details empty states in English', async ({ page }) => {
+      const license = randomLicense()
+      await seedCar('Volkswagen', 'Golf', license)
+
+      await page.goto('/')
+      await expectCarDetailsEmptyStates(page, license, CAR_DETAILS_EN)
+    })
   })
 
   test.describe('German (de-DE browser)', () => {
@@ -470,6 +666,23 @@ test.describe('Localization', () => {
       await seedReadingAndReport(carId)
 
       await expectApiValuesLocaleIndependent(page, license, carId)
+    })
+
+    test('shows the car details in German', async ({ page }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await page.goto('/')
+      await expectCarDetails(page, license, CAR_DETAILS_DE)
+    })
+
+    test('shows the car details empty states in German', async ({ page }) => {
+      const license = randomLicense()
+      await seedCar('Volkswagen', 'Golf', license)
+
+      await page.goto('/')
+      await expectCarDetailsEmptyStates(page, license, CAR_DETAILS_DE)
     })
   })
 
