@@ -1,18 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   boundsHint,
   computeBounds,
   fieldError,
-  formatNumber,
   validate,
   type OdometerEntry,
 } from '../odometerSequence'
+import { setLocale } from '../i18n'
 
 const mk = (id: number, date: string, odometerReading: number): OdometerEntry => ({
   id,
   date,
   odometerReading,
+})
+
+beforeEach(() => {
+  setLocale('en')
+})
+
+afterEach(() => {
+  setLocale('en')
 })
 
 describe('computeBounds', () => {
@@ -81,10 +89,14 @@ describe('validate', () => {
     expect(validate(entries, '2026-01-15', 1001)).toBeNull()
   })
 
-  it('reports when below the prior bound', () => {
+  it('reports when below the prior bound, in the selected language', () => {
     const entries = [mk(1, '2025-06-01', 1000)]
     expect(validate(entries, '2026-01-15', 999)).toBe(
-      'Odometer reading must be at least 1.000 km.',
+      'Odometer reading must be at least 1,000 km.',
+    )
+    setLocale('de')
+    expect(validate(entries, '2026-01-15', 999)).toBe(
+      'Die Erfassung muss mindestens 1.000 km betragen.',
     )
   })
 
@@ -94,10 +106,14 @@ describe('validate', () => {
     expect(validate(entries, '2026-01-15', 1999)).toBeNull()
   })
 
-  it('reports when above the later bound', () => {
+  it('reports when above the later bound, in the selected language', () => {
     const entries = [mk(1, '2026-06-01', 2000)]
     expect(validate(entries, '2026-01-15', 2001)).toBe(
-      'Odometer reading must be at most 2.000 km.',
+      'Odometer reading must be at most 2,000 km.',
+    )
+    setLocale('de')
+    expect(validate(entries, '2026-01-15', 2001)).toBe(
+      'Die Erfassung darf höchstens 2.000 km betragen.',
     )
   })
 
@@ -105,7 +121,11 @@ describe('validate', () => {
     const entries = [mk(1, '2026-01-15', 1500)]
     expect(validate(entries, '2026-01-15', 1500)).toBeNull()
     expect(validate(entries, '2026-01-15', 1501)).toBe(
-      'Odometer reading must be 1.500 km.',
+      'Odometer reading must be 1,500 km.',
+    )
+    setLocale('de')
+    expect(validate(entries, '2026-01-15', 1501)).toBe(
+      'Die Erfassung muss 1.500 km betragen.',
     )
   })
 
@@ -115,10 +135,19 @@ describe('validate', () => {
       mk(2, '2026-06-01', 3000),
     ]
     expect(validate(entries, '2026-01-15', 500)).toBe(
-      'Odometer reading must be at least 1.000 km.',
+      'Odometer reading must be at least 1,000 km.',
     )
     expect(validate(entries, '2026-01-15', 5000)).toBe(
-      'Odometer reading must be at most 3.000 km.',
+      'Odometer reading must be at most 3,000 km.',
+    )
+    expect(validate(entries, '2026-01-15', 2000)).toBeNull()
+
+    setLocale('de')
+    expect(validate(entries, '2026-01-15', 500)).toBe(
+      'Die Erfassung muss mindestens 1.000 km betragen.',
+    )
+    expect(validate(entries, '2026-01-15', 5000)).toBe(
+      'Die Erfassung darf höchstens 3.000 km betragen.',
     )
     expect(validate(entries, '2026-01-15', 2000)).toBeNull()
   })
@@ -130,14 +159,12 @@ describe('validate', () => {
       mk(3, '2026-06-01', 5000),
     ]
     expect(validate(entries, '2026-01-15', 2000)).toBe(
-      'Odometer reading must be 1.500 km.',
+      'Odometer reading must be 1,500 km.',
     )
-  })
-
-  it('formatNumber uses thousands-separated de-DE output', () => {
-    expect(formatNumber(1000)).toBe('1.000')
-    expect(formatNumber(1234567)).toBe('1.234.567')
-    expect(formatNumber(0)).toBe('0')
+    setLocale('de')
+    expect(validate(entries, '2026-01-15', 2000)).toBe(
+      'Die Erfassung muss 1.500 km betragen.',
+    )
   })
 })
 
@@ -148,38 +175,50 @@ describe('boundsHint', () => {
 
   it('returns "must be X km" for a same-date constraint', () => {
     expect(boundsHint([mk(1, '2026-01-15', 1500)], '2026-01-15')).toBe(
-      'Must be 1.500 km.',
+      'Must be 1,500 km.',
+    )
+    setLocale('de')
+    expect(boundsHint([mk(1, '2026-01-15', 1500)], '2026-01-15')).toBe(
+      'Muss 1.500 km betragen.',
     )
   })
 
   it('returns "between X and Y km" when both bounds exist', () => {
-    expect(
-      boundsHint(
-        [mk(1, '2025-06-01', 1000), mk(2, '2026-06-01', 3000)],
-        '2026-01-15',
-      ),
-    ).toBe('Must be between 1.000 and 3.000 km.')
+    const entries = [mk(1, '2025-06-01', 1000), mk(2, '2026-06-01', 3000)]
+    expect(boundsHint(entries, '2026-01-15')).toBe(
+      'Must be between 1,000 and 3,000 km.',
+    )
+    setLocale('de')
+    expect(boundsHint(entries, '2026-01-15')).toBe(
+      'Muss zwischen 1.000 und 3.000 km liegen.',
+    )
   })
 
   it('returns "at least X km" when only lower is set', () => {
     expect(boundsHint([mk(1, '2025-06-01', 1000)], '2026-01-15')).toBe(
-      'Must be at least 1.000 km.',
+      'Must be at least 1,000 km.',
+    )
+    setLocale('de')
+    expect(boundsHint([mk(1, '2025-06-01', 1000)], '2026-01-15')).toBe(
+      'Muss mindestens 1.000 km betragen.',
     )
   })
 
   it('returns "at most X km" when only upper is set', () => {
     expect(boundsHint([mk(1, '2026-06-01', 2000)], '2026-01-15')).toBe(
-      'Must be at most 2.000 km.',
+      'Must be at most 2,000 km.',
+    )
+    setLocale('de')
+    expect(boundsHint([mk(1, '2026-06-01', 2000)], '2026-01-15')).toBe(
+      'Muss höchstens 2.000 km betragen.',
     )
   })
 
   it('returns "between X and X km" when lower equals upper', () => {
-    expect(
-      boundsHint(
-        [mk(1, '2025-06-01', 1500), mk(2, '2026-06-01', 1500)],
-        '2026-01-15',
-      ),
-    ).toBe('Must be between 1.500 and 1.500 km.')
+    const entries = [mk(1, '2025-06-01', 1500), mk(2, '2026-06-01', 1500)]
+    expect(boundsHint(entries, '2026-01-15')).toBe('Must be between 1,500 and 1,500 km.')
+    setLocale('de')
+    expect(boundsHint(entries, '2026-01-15')).toBe('Muss zwischen 1.500 und 1.500 km liegen.')
   })
 })
 

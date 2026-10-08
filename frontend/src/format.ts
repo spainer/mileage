@@ -53,7 +53,7 @@ export function evaluationLabel(
 }
 
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Something went wrong.'
+  return err instanceof Error ? err.message : i18n.global.t('form.genericError')
 }
 
 const LICENSE_PATTERN =

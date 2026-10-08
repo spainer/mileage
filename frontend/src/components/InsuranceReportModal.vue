@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import { useConfirm } from '../composables/useConfirm'
 import { errorMessage, formatDate, formatKm, todayIso } from '../format'
+import { i18n } from '../i18n'
 import { boundsHint, fieldError } from '../odometerSequence'
 import {
   createInsuranceReport,
@@ -28,6 +29,8 @@ const saving = ref(false)
 const deleting = ref(false)
 
 const { confirm } = useConfirm()
+
+const t = i18n.global.t
 
 const excludeId = computed(() => (props.report ? props.report.id : undefined))
 
@@ -91,19 +94,19 @@ function save() {
   if (saving.value) return
   if (!canSubmit.value) {
     if (!form.date) {
-      error.value = 'A date is required.'
+      error.value = t('readingForm.dateRequired')
       return
     }
     const reading = Number(form.odometerReading)
     if (form.odometerReading === '' || Number.isNaN(reading) || reading < 0) {
-      error.value = 'An odometer reading in km (>= 0) is required.'
+      error.value = t('readingForm.readingRequired')
       return
     }
     if (readingError.value) {
       error.value = readingError.value
       return
     }
-    error.value = 'An annual mileage cap in km/year (>= 0) is required.'
+    error.value = t('reportForm.capRequired')
     return
   }
   error.value = ''
@@ -130,9 +133,12 @@ async function remove() {
   const report = props.report
   if (!report || deleting.value) return
   const confirmed = await confirm({
-    title: 'Delete report',
-    message: `This deletes the report of ${formatKm(report.mileagePerYear)} km/year on ${formatDate(report.date)}.`,
-    confirmLabel: 'Delete',
+    title: t('reportForm.deleteTitle'),
+    message: t('reportForm.deleteMessage', {
+      cap: formatKm(report.mileagePerYear),
+      date: formatDate(report.date),
+    }),
+    confirmLabel: t('form.delete'),
   })
   if (!confirmed) return
   deleting.value = true
@@ -151,8 +157,8 @@ async function remove() {
 <template>
   <UModal
     :open="open"
-    :title="report ? 'Edit report' : 'Add report'"
-    description="The odometer reading and the annual mileage cap at a point in time."
+    :title="report ? t('car.editReport') : t('car.addReport')"
+    :description="t('reportForm.description')"
     @update:open="onOpenChange"
   >
     <template #body>
@@ -160,11 +166,11 @@ async function remove() {
         {{ error }}
       </div>
       <form class="grid gap-4" @submit.prevent="save">
-        <UFormField label="Date">
+        <UFormField :label="t('car.date')">
           <UInput v-model="form.date" type="date" />
         </UFormField>
         <UFormField
-          label="Odometer reading (km)"
+          :label="t('readingForm.reading')"
           :description="hint ?? undefined"
           :error="readingError ?? undefined"
         >
@@ -175,7 +181,7 @@ async function remove() {
             placeholder="0"
           />
         </UFormField>
-        <UFormField label="Annual mileage cap (km/year)">
+        <UFormField :label="t('reportForm.cap')">
           <UInput v-model="form.mileagePerYear" type="number" min="0" placeholder="0" />
         </UFormField>
       </form>
@@ -190,18 +196,18 @@ async function remove() {
           :disabled="saving || deleting"
           @click="remove"
         >
-          Delete
+          {{ t('form.delete') }}
         </UButton>
         <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="close">
-          Cancel
+          {{ t('form.cancel') }}
         </UButton>
         <UButton
           color="primary"
           :disabled="saving || deleting || !canSubmit"
           @click="save"
         >
-          {{ report ? 'Save' : 'Add report' }}
+          {{ report ? t('form.save') : t('car.addReport') }}
         </UButton>
       </div>
     </template>

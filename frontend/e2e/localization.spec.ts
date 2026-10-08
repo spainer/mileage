@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import {
   evaluationLabel,
@@ -356,6 +356,119 @@ const CAR_DETAILS_DE: CarDetailsExpectations = {
   atReading: (km) => `bei ${km} km`,
 }
 
+// What the forms and their confirmations must say in each language: the
+// titles, the labels, the validation messages, the odometer-sequence guidance,
+// and the delete confirmations. The number and date values are computed by
+// the callers with the selected locale, matching the browser's formatting.
+interface FormExpectations {
+  addCarTitle: string
+  editCarTitle: string
+  manufacturer: string
+  model: string
+  license: string
+  licenseInvalid: string
+  allRequired: string
+  save: string
+  cancel: string
+  delete: string
+  deleteCarTitle: string
+  deleteCarMessage: (car: string) => string
+  insuranceTab: string
+  addReading: string
+  editReading: string
+  readingDescription: string
+  date: string
+  reading: string
+  dateRequired: string
+  readingRequired: string
+  hintBetween: (lower: string, upper: string) => string
+  sameDateError: (km: string) => string
+  atLeastError: (km: string) => string
+  atMostError: (km: string) => string
+  deleteReadingTitle: string
+  deleteReadingMessage: (km: string, date: string) => string
+  addReport: string
+  editReport: string
+  reportDescription: string
+  cap: string
+  capRequired: string
+  deleteReportTitle: string
+  deleteReportMessage: (cap: string, date: string) => string
+}
+
+const FORMS_EN: FormExpectations = {
+  addCarTitle: 'Add car',
+  editCarTitle: 'Edit car',
+  manufacturer: 'Manufacturer',
+  model: 'Model',
+  license: 'License',
+  licenseInvalid: 'License must be a valid German license (e.g. M-AB1234).',
+  allRequired: 'All fields are required.',
+  save: 'Save',
+  cancel: 'Cancel',
+  delete: 'Delete',
+  deleteCarTitle: 'Delete car',
+  deleteCarMessage: (car) =>
+    `This deletes ${car} together with all of its Mileage Records and Insurance Reports.`,
+  insuranceTab: 'Insurance',
+  addReading: 'Add reading',
+  editReading: 'Edit reading',
+  readingDescription: 'The odometer reading at a point in time.',
+  date: 'Date',
+  reading: 'Odometer reading (km)',
+  dateRequired: 'A date is required.',
+  readingRequired: 'An odometer reading in km (>= 0) is required.',
+  hintBetween: (lower, upper) => `Must be between ${lower} and ${upper} km.`,
+  sameDateError: (km) => `Odometer reading must be ${km} km.`,
+  atLeastError: (km) => `Odometer reading must be at least ${km} km.`,
+  atMostError: (km) => `Odometer reading must be at most ${km} km.`,
+  deleteReadingTitle: 'Delete reading',
+  deleteReadingMessage: (km, date) => `This deletes the reading of ${km} km on ${date}.`,
+  addReport: 'Add report',
+  editReport: 'Edit report',
+  reportDescription: 'The odometer reading and the annual mileage cap at a point in time.',
+  cap: 'Annual mileage cap (km/year)',
+  capRequired: 'An annual mileage cap in km/year (>= 0) is required.',
+  deleteReportTitle: 'Delete report',
+  deleteReportMessage: (cap, date) => `This deletes the report of ${cap} km/year on ${date}.`,
+}
+
+const FORMS_DE: FormExpectations = {
+  addCarTitle: 'Auto hinzufügen',
+  editCarTitle: 'Auto bearbeiten',
+  manufacturer: 'Hersteller',
+  model: 'Modell',
+  license: 'Kennzeichen',
+  licenseInvalid: 'Das Kennzeichen muss ein gültiges deutsches Kennzeichen sein (z. B. M-AB1234).',
+  allRequired: 'Alle Felder sind erforderlich.',
+  save: 'Speichern',
+  cancel: 'Abbrechen',
+  delete: 'Löschen',
+  deleteCarTitle: 'Auto löschen',
+  deleteCarMessage: (car) => `Dies löscht ${car} zusammen mit allen Erfassungen und Berichten.`,
+  insuranceTab: 'Versicherung',
+  addReading: 'Erfassung hinzufügen',
+  editReading: 'Erfassung bearbeiten',
+  readingDescription: 'Der Kilometerstand zu einem Zeitpunkt.',
+  date: 'Datum',
+  reading: 'Erfassung (km)',
+  dateRequired: 'Ein Datum ist erforderlich.',
+  readingRequired: 'Eine Erfassung in km (>= 0) ist erforderlich.',
+  hintBetween: (lower, upper) => `Muss zwischen ${lower} und ${upper} km liegen.`,
+  sameDateError: (km) => `Die Erfassung muss ${km} km betragen.`,
+  atLeastError: (km) => `Die Erfassung muss mindestens ${km} km betragen.`,
+  atMostError: (km) => `Die Erfassung darf höchstens ${km} km betragen.`,
+  deleteReadingTitle: 'Erfassung löschen',
+  deleteReadingMessage: (km, date) => `Dies löscht die Erfassung von ${km} km am ${date}.`,
+  addReport: 'Bericht hinzufügen',
+  editReport: 'Bericht bearbeiten',
+  reportDescription: 'Der Kilometerstand und das jährliche Limit zu einem Zeitpunkt.',
+  cap: 'Jährliches Limit (km/Jahr)',
+  capRequired: 'Ein jährliches Limit in km/Jahr (>= 0) ist erforderlich.',
+  deleteReportTitle: 'Bericht löschen',
+  deleteReportMessage: (cap, date) => `Dies löscht den Bericht von ${cap} km/Jahr am ${date}.`,
+}
+
 // Opens the seeded car's slideover and checks the details surface in the
 // selected language: the tabs, the Latest summary and the timeline table with
 // its formatted dates and numbers, the In force summary and badge, the mobile
@@ -451,6 +564,261 @@ async function expectCarDetailsEmptyStates(
   await expect(dialog.getByText(ex.noReportYet, { exact: true })).toBeVisible()
   await expect(dialog.getByText(ex.noReports, { exact: true }).first()).toBeVisible()
   await expect(dialog.getByRole('button', { name: ex.addReport })).toBeVisible()
+}
+
+// Click Delete in the edit dialog and drive the shared confirmation: the
+// localized title, the message, both buttons, and the confirm click.
+async function deleteThroughConfirmation(
+  page: Page,
+  edit: Locator,
+  forms: FormExpectations,
+  title: string,
+  message: string,
+): Promise<void> {
+  await edit.getByRole('button', { name: forms.delete }).click()
+  const confirmation = page.getByRole('dialog', { name: title })
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation.getByText(message)).toBeVisible()
+  await expect(confirmation.getByRole('button', { name: forms.cancel })).toBeVisible()
+  await expect(confirmation.getByRole('button', { name: forms.delete })).toBeVisible()
+  await confirmation.getByRole('button', { name: forms.delete }).click()
+  await expect(confirmation).toBeHidden()
+}
+
+// The car form in the selected language: the labels, the validation messages,
+// the stored locale-independent values, and the delete confirmation (#59).
+async function expectCarFormFlow(
+  page: Page,
+  ex: LocaleExpectations,
+  forms: FormExpectations,
+): Promise<void> {
+  await page.goto('/')
+  await page.getByRole('button', { name: ex.addCar }).click()
+  const modal = page.getByRole('dialog', { name: forms.addCarTitle })
+  await expect(modal).toBeVisible()
+
+  await expect(modal.getByLabel(forms.manufacturer)).toBeVisible()
+  await expect(modal.getByLabel(forms.model)).toBeVisible()
+  await expect(modal.getByLabel(forms.license)).toBeVisible()
+
+  // Submitting with everything empty reports the missing fields.
+  await modal.getByRole('button', { name: forms.addCarTitle }).click()
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.allRequired)
+
+  // An invalid license reports its own message while it is being typed.
+  await modal.getByLabel(forms.manufacturer).fill('Volkswagen')
+  await modal.getByLabel(forms.model).fill('Golf')
+  await modal.getByLabel(forms.license).fill('TOO-LONG')
+  await expect(modal.getByText(forms.licenseInvalid)).toBeVisible()
+
+  // A valid license saves; the API keeps the locale-independent value.
+  const license = randomLicense()
+  await modal.getByLabel(forms.license).fill(license)
+  await expect(modal.getByText(forms.licenseInvalid)).toBeHidden()
+  await modal.getByRole('button', { name: forms.addCarTitle }).click()
+  await expect(modal).toBeHidden()
+
+  await expect(cardFor(page, license)).toBeVisible()
+  await expect(cardFor(page, license)).toContainText('Volkswagen Golf')
+  expect((await findCarByLicense(license)).license).toBe(license)
+
+  // Edit and delete the car through the slideover, which the app opens
+  // automatically right after adding a car (route /cars/:id).
+  const slideover = page.getByRole('dialog').filter({ hasText: formatPlate(license) })
+  await expect(slideover).toBeVisible()
+  await slideover.getByRole('button', { name: forms.editCarTitle }).click()
+  const edit = page.getByRole('dialog', { name: forms.editCarTitle })
+  await expect(edit).toBeVisible()
+  await expect(edit.getByLabel(forms.manufacturer)).toHaveValue('Volkswagen')
+  await expect(edit.getByLabel(forms.license)).toHaveValue(license)
+  await expect(edit.getByRole('button', { name: forms.save })).toBeVisible()
+  await expect(edit.getByRole('button', { name: forms.cancel })).toBeVisible()
+
+  await deleteThroughConfirmation(
+    page,
+    edit,
+    forms,
+    forms.deleteCarTitle,
+    forms.deleteCarMessage('Volkswagen Golf'),
+  )
+  await expect(cardFor(page, license)).toHaveCount(0)
+
+  const remaining = (await request('/cars')) as Array<{ license: string }>
+  expect(remaining.some((candidate) => candidate.license === license)).toBe(false)
+}
+
+// The mileage record form in the selected language: the labels, the
+// required-field and sequence messages with the locale's number conventions,
+// the stored values, and the delete confirmation (#59).
+async function expectReadingFormFlow(
+  page: Page,
+  license: string,
+  carId: number,
+  forms: FormExpectations,
+): Promise<void> {
+  await page.goto('/')
+  await cardFor(page, license).click()
+  const slideover = page.getByRole('dialog').filter({ hasText: formatPlate(license) })
+  await expect(slideover).toBeVisible()
+
+  await slideover.getByRole('button', { name: forms.addReading }).click()
+  const modal = page.getByRole('dialog', { name: forms.addReading })
+  await expect(modal).toBeVisible()
+  await expect(modal.getByText(forms.readingDescription)).toBeVisible()
+  await expect(modal.getByLabel(forms.date)).toBeVisible()
+  await expect(modal.getByLabel(forms.reading)).toBeVisible()
+
+  const readDate = daysAgoIso(5)
+  const proposed = 44_700
+
+  // The Save button is disabled until the form is complete and valid, so the
+  // required-field messages come from submitting the form with Enter.
+  await modal.getByLabel(forms.date).fill('')
+  await modal.getByLabel(forms.reading).press('Enter')
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.dateRequired)
+
+  // With a date, the field shows the sequence hint in the locale's numbers.
+  await modal.getByLabel(forms.date).fill(readDate)
+  await expect(
+    modal.getByText(forms.hintBetween(formatKm(REPORTED_READING), formatKm(READING))),
+  ).toBeVisible()
+  await modal.getByLabel(forms.reading).press('Enter')
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.readingRequired)
+
+  // Out-of-sequence values are rejected: above the later bound, then the
+  // same-date value, then below the prior bound.
+  await modal.getByLabel(forms.reading).fill('50000')
+  await expect(modal.getByText(forms.atMostError(formatKm(READING)))).toBeVisible()
+
+  await modal.getByLabel(forms.date).fill(todayIso())
+  await expect(modal.getByText(forms.sameDateError(formatKm(READING)))).toBeVisible()
+
+  await modal.getByLabel(forms.date).fill(daysAgoIso(-1))
+  await modal.getByLabel(forms.reading).fill('40000')
+  await expect(modal.getByText(forms.atLeastError(formatKm(READING)))).toBeVisible()
+
+  // A value inside the bounds saves: formatted on display, raw in the API.
+  await modal.getByLabel(forms.date).fill(readDate)
+  await modal.getByLabel(forms.reading).fill(String(proposed))
+  await expect(modal.getByRole('button', { name: forms.addReading })).toBeEnabled()
+  await modal.getByRole('button', { name: forms.addReading }).click()
+  await expect(modal).toBeHidden()
+
+  const row = slideover.locator('tbody tr').filter({ hasText: formatDate(readDate) })
+  await expect(row).toContainText(`${formatKm(proposed)} km`)
+
+  const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{
+    date: string
+    odometer_reading: number
+  }>
+  const created = records.find((record) => record.date === readDate)
+  expect(created?.odometer_reading).toBe(proposed)
+
+  // Delete the record through the confirmation of the edit dialog.
+  await row.getByRole('button', { name: forms.editReading }).click()
+  const edit = page.getByRole('dialog', { name: forms.editReading })
+  await expect(edit).toBeVisible()
+  await expect(edit.getByRole('button', { name: forms.save })).toBeVisible()
+  await deleteThroughConfirmation(
+    page,
+    edit,
+    forms,
+    forms.deleteReadingTitle,
+    forms.deleteReadingMessage(formatKm(proposed), formatDate(readDate)),
+  )
+
+  // The timeline also shows the seeded report row, so assert on the created
+  // row itself; the whole table would hold two rows and trip strict mode.
+  await expect(row).toHaveCount(0)
+  const after = (await request(`/cars/${carId}/mileage-records`)) as Array<{ date: string }>
+  expect(after).toHaveLength(1)
+}
+
+// The insurance report form in the selected language: the labels, the
+// required-field and sequence messages, the stored values, and the delete
+// confirmation (#59).
+async function expectReportFormFlow(
+  page: Page,
+  license: string,
+  carId: number,
+  forms: FormExpectations,
+): Promise<void> {
+  await page.goto('/')
+  await cardFor(page, license).click()
+  const slideover = page.getByRole('dialog').filter({ hasText: formatPlate(license) })
+  await expect(slideover).toBeVisible()
+
+  await slideover.getByRole('tab', { name: forms.insuranceTab }).click()
+  await slideover.getByRole('button', { name: forms.addReport }).click()
+  const modal = page.getByRole('dialog', { name: forms.addReport })
+  await expect(modal).toBeVisible()
+  await expect(modal.getByText(forms.reportDescription)).toBeVisible()
+  await expect(modal.getByLabel(forms.date)).toBeVisible()
+  await expect(modal.getByLabel(forms.reading)).toBeVisible()
+  await expect(modal.getByLabel(forms.cap)).toBeVisible()
+
+  const reportDate = daysAgoIso(10)
+  const proposed = 44_800
+  const proposedCap = 15_000
+
+  // Chromium only performs implicit submission when the form has exactly one
+  // text field, and the report form has two number inputs, so trigger the
+  // form's own submit handler to surface the required-field messages.
+  const submit = () =>
+    modal.locator('form').evaluate((el) => (el as HTMLFormElement).requestSubmit())
+
+  await modal.getByLabel(forms.date).fill('')
+  await submit()
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.dateRequired)
+
+  await modal.getByLabel(forms.date).fill(reportDate)
+  await expect(
+    modal.getByText(forms.hintBetween(formatKm(REPORTED_READING), formatKm(READING))),
+  ).toBeVisible()
+  await submit()
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.readingRequired)
+
+  await modal.getByLabel(forms.reading).fill(String(proposed))
+  await submit()
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.capRequired)
+
+  await modal.getByLabel(forms.cap).fill(String(proposedCap))
+  await expect(modal.getByRole('button', { name: forms.addReport })).toBeEnabled()
+  await modal.getByRole('button', { name: forms.addReport }).click()
+  await expect(modal).toBeHidden()
+
+  const row = slideover.locator('tbody tr').filter({ hasText: formatDate(reportDate) })
+  await expect(row).toContainText(`${formatKm(proposed)} km`)
+
+  const reports = (await request(`/cars/${carId}/insurance-reports`)) as Array<{
+    date: string
+    odometer_reading: number
+    mileage_per_year: number
+  }>
+  const created = reports.find((report) => report.date === reportDate)
+  expect(created?.odometer_reading).toBe(proposed)
+  expect(created?.mileage_per_year).toBe(proposedCap)
+
+  // Delete the report through the confirmation of the edit dialog.
+  await row.getByRole('button', { name: forms.editReport }).click()
+  const edit = page.getByRole('dialog', { name: forms.editReport })
+  await expect(edit).toBeVisible()
+  await expect(edit.getByRole('button', { name: forms.save })).toBeVisible()
+  await deleteThroughConfirmation(
+    page,
+    edit,
+    forms,
+    forms.deleteReportTitle,
+    forms.deleteReportMessage(formatKm(proposedCap), formatDate(reportDate)),
+  )
+
+  // Wait for the delete to land in the timeline before the API check; the
+  // confirmation hiding is not a barrier for the DELETE round-trip.
+  await expect(row).toHaveCount(0)
+
+  const after = (await request(`/cars/${carId}/insurance-reports`)) as Array<{ date: string }>
+  expect(after).toHaveLength(1)
+  expect(after[0].date).toBe(oneYearBeforeToday())
 }
 
 test.describe('Localization', () => {
@@ -599,6 +967,32 @@ test.describe('Localization', () => {
       await page.goto('/')
       await expectCarDetailsEmptyStates(page, license, CAR_DETAILS_EN)
     })
+
+    test('adds a car through the localized form in English, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      await expectCarFormFlow(page, EN, FORMS_EN)
+    })
+
+    test('records a mileage reading through the localized form in English, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectReadingFormFlow(page, license, carId, FORMS_EN)
+    })
+
+    test('adds an insurance report through the localized form in English, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectReportFormFlow(page, license, carId, FORMS_EN)
+    })
   })
 
   test.describe('German (de-DE browser)', () => {
@@ -683,6 +1077,32 @@ test.describe('Localization', () => {
 
       await page.goto('/')
       await expectCarDetailsEmptyStates(page, license, CAR_DETAILS_DE)
+    })
+
+    test('adds a car through the localized form in German, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      await expectCarFormFlow(page, DE, FORMS_DE)
+    })
+
+    test('records a mileage reading through the localized form in German, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectReadingFormFlow(page, license, carId, FORMS_DE)
+    })
+
+    test('adds an insurance report through the localized form in German, validates it, and deletes it through the confirmation', async ({
+      page,
+    }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectReportFormFlow(page, license, carId, FORMS_DE)
     })
   })
 

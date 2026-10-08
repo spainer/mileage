@@ -1,5 +1,7 @@
 import { ref } from 'vue'
 
+import { i18n } from '../i18n'
+
 export interface ConfirmOptions {
   title: string
   message: string
@@ -22,8 +24,8 @@ export function useConfirm() {
     state.value = {
       title: options.title,
       message: options.message,
-      confirmLabel: options.confirmLabel ?? 'Confirm',
-      cancelLabel: options.cancelLabel ?? 'Cancel',
+      confirmLabel: options.confirmLabel ?? i18n.global.t('form.confirm'),
+      cancelLabel: options.cancelLabel ?? i18n.global.t('form.cancel'),
     }
     return new Promise<boolean>((resolve) => {
       settle = resolve

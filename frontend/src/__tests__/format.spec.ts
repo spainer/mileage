@@ -4,6 +4,7 @@ import {
   carLabel,
   deltaLabel,
   evaluationLabel,
+  errorMessage,
   formatDate,
   formatKm,
   formatPlate,
@@ -101,6 +102,32 @@ describe('carLabel', () => {
   it('joins manufacturer and model with a space', () => {
     const label = carLabel({ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' })
     expect(label).toBe('Volkswagen Golf')
+  })
+})
+
+describe('errorMessage', () => {
+  it('passes through an Error message in English', () => {
+    expect(errorMessage(new Error('Could not load the garage.'))).toBe(
+      'Could not load the garage.',
+    )
+  })
+
+  it('passes through an Error message in German', () => {
+    setLocale('de')
+    expect(errorMessage(new Error('Die Garage konnte nicht geladen werden.'))).toBe(
+      'Die Garage konnte nicht geladen werden.',
+    )
+  })
+
+  it('falls back to the generic message in English', () => {
+    expect(errorMessage('unexpected')).toBe('Something went wrong.')
+    expect(errorMessage(null)).toBe('Something went wrong.')
+  })
+
+  it('falls back to the generic message in German', () => {
+    setLocale('de')
+    expect(errorMessage('unexpected')).toBe('Etwas ist schiefgelaufen.')
+    expect(errorMessage(null)).toBe('Etwas ist schiefgelaufen.')
   })
 })
 
