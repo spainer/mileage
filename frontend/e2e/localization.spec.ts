@@ -21,8 +21,8 @@ const OVER_BY = 1_000
 const REPORTED_READING = READING - ANNUAL_MILEAGE_CAP - OVER_BY
 const THEORETICAL_LIMIT = READING - OVER_BY
 
-// Extra entries for the plural-count tests, monotonic so the backend accepts
-// them.
+// Extra Mileage Records for the plural-count tests, monotonic so the backend
+// accepts them.
 const FIRST_EXTRA_READING = 40_000
 const SECOND_EXTRA_READING = 43_000
 const SECOND_REPORT_READING = 38_000
@@ -58,7 +58,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   return response.json()
 }
 
-// Two letters plus three digits satisfies the German plate rule, and the
+// Two letters plus three digits satisfies the German License rule, and the
 // fixed length keeps random licenses from being substrings of each other.
 function randomLicense(): string {
   const letters =
@@ -140,6 +140,140 @@ function cardFor(page: Page, license: string) {
   return page.locator('[role="button"]', { hasText: formatPlate(license) })
 }
 
+// What the interface must say in each language, shared by the tests that run
+// in both.
+interface LocaleExpectations {
+  title: string
+  docLang: string
+  subtitle: string
+  addCar: string
+  ariaLabel: string
+  singleCounts: string
+  pluralCounts: string
+  loadFailedTitle: string
+  retry: string
+}
+
+const EN: LocaleExpectations = {
+  title: 'Mileage',
+  docLang: 'en',
+  subtitle: 'Every car at a glance.',
+  addCar: '+ Add car',
+  ariaLabel: 'Language',
+  singleCounts: '1 reading · 1 report',
+  pluralCounts: '3 readings · 2 reports',
+  loadFailedTitle: 'Could not load the garage',
+  retry: 'Retry',
+}
+
+const DE: LocaleExpectations = {
+  title: 'Kilometerstand',
+  docLang: 'de',
+  subtitle: 'Alle Autos auf einen Blick.',
+  addCar: '+ Auto hinzufügen',
+  ariaLabel: 'Sprache',
+  singleCounts: '1 Erfassung · 1 Bericht',
+  pluralCounts: '3 Erfassungen · 2 Berichte',
+  loadFailedTitle: 'Die Garage konnte nicht geladen werden',
+  retry: 'Erneut versuchen',
+}
+
+// The document metadata and the selector itself, in the selected language.
+async function expectGarageShell(page: Page, ex: LocaleExpectations): Promise<void> {
+  await expect(page).toHaveTitle(ex.title)
+  await expect(page.locator('html')).toHaveAttribute('lang', ex.docLang)
+  await expect(page.getByText(ex.subtitle)).toBeVisible()
+
+  const select = page.getByTestId('language-selector')
+  await expect(select).toBeVisible()
+  await expect(select).toHaveValue(ex.docLang)
+  await expect(select).toHaveAttribute('aria-label', ex.ariaLabel)
+  await expect(select.locator('option')).toHaveText(['English', 'Deutsch'])
+}
+
+// The seeded car's card, formatted per the selected language.
+async function expectFormattedGarage(
+  page: Page,
+  license: string,
+  ex: LocaleExpectations,
+): Promise<void> {
+  const card = cardFor(page, license)
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('Volkswagen Golf')
+  await expect(card).toContainText(`${formatKm(READING)} km`)
+  await expect(card).toContainText(formatDate(todayIso()))
+  await expect(card).toContainText(formatKm(ANNUAL_MILEAGE_CAP))
+  await expect(card.locator('[data-testid="theoretical-limit"]')).toHaveText(
+    formatKm(THEORETICAL_LIMIT),
+  )
+  await expect(card).toContainText(ex.singleCounts)
+  await expect(page.getByRole('button', { name: ex.addCar })).toBeVisible()
+}
+
+// The API failure state in the selected language, then recovery after Retry.
+async function expectLoadFailureAndRetry(page: Page, ex: LocaleExpectations): Promise<void> {
+  await page.route(APP_API, (route) => route.abort())
+  await page.goto('/')
+
+  await expect(page.getByText(ex.loadFailedTitle)).toBeVisible()
+  const retryButton = page.getByRole('button', { name: ex.retry })
+  await expect(retryButton).toBeVisible()
+
+  await page.unroute(APP_API)
+  await retryButton.click()
+  await expect(page.getByText(ex.subtitle)).toBeVisible()
+}
+
+// The seeded values as the app displays them and as the API still serves
+// them: presentation localizes, the stored values do not.
+async function expectApiValuesLocaleIndependent(
+  page: Page,
+  license: string,
+  carId: number,
+): Promise<void> {
+  await page.goto('/')
+  await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
+
+  const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{
+    date: string
+    odometer_reading: number
+  }>
+  expect(records).toHaveLength(1)
+  expect(records[0].date).toBe(todayIso())
+  expect(records[0].odometer_reading).toBe(READING)
+
+  const reports = (await request(`/cars/${carId}/insurance-reports`)) as Array<{
+    date: string
+    odometer_reading: number
+    mileage_per_year: number
+  }>
+  expect(reports).toHaveLength(1)
+  expect(reports[0]).toMatchObject({
+    date: oneYearBeforeToday(),
+    odometer_reading: REPORTED_READING,
+    mileage_per_year: ANNUAL_MILEAGE_CAP,
+  })
+
+  const evaluation = (await request(`/cars/${carId}/evaluation`)) as {
+    theoretical_limit: number
+    delta: number | null
+  }
+  expect(evaluation).toEqual({ theoretical_limit: THEORETICAL_LIMIT, delta: OVER_BY })
+}
+
+// A fresh visit with this context's browser language: the interface must be
+// in the mapped generic language, with the seeded car formatted by it.
+async function expectRegionalMapping(
+  page: Page,
+  license: string,
+  ex: LocaleExpectations,
+): Promise<void> {
+  await page.goto('/')
+  await expect(page.getByText(ex.subtitle)).toBeVisible()
+  await expect(page.getByTestId('language-selector')).toHaveValue(ex.docLang)
+  await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
+}
+
 test.describe('Localization', () => {
   test.afterEach(() => {
     setLocale('en')
@@ -166,27 +300,8 @@ test.describe('Localization', () => {
       await seedReadingAndReport(carId)
 
       await page.goto('/')
-      await expect(page).toHaveTitle('Mileage')
-      await expect(page.locator('html')).toHaveAttribute('lang', 'en')
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
-
-      const card = cardFor(page, license)
-      await expect(card).toBeVisible()
-      await expect(card).toContainText('Volkswagen Golf')
-      await expect(card).toContainText(`${formatKm(READING)} km`)
-      await expect(card).toContainText(formatDate(todayIso()))
-      await expect(card).toContainText(formatKm(ANNUAL_MILEAGE_CAP))
-      await expect(card.locator('[data-testid="theoretical-limit"]')).toHaveText(
-        formatKm(THEORETICAL_LIMIT),
-      )
-      await expect(card).toContainText('1 reading · 1 report')
-      await expect(page.getByRole('button', { name: '+ Add car' })).toBeVisible()
-
-      const select = page.getByTestId('language-selector')
-      await expect(select).toBeVisible()
-      await expect(select).toHaveValue('en')
-      await expect(select).toHaveAttribute('aria-label', 'Language')
-      await expect(select.locator('option')).toHaveText(['English', 'Deutsch'])
+      await expectGarageShell(page, EN)
+      await expectFormattedGarage(page, license, EN)
     })
 
     test('keeps an explicit choice across reloads and falls back to detection when cleared', async ({
@@ -198,19 +313,19 @@ test.describe('Localization', () => {
       const card = cardFor(page, license)
 
       await page.goto('/')
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
+      await expect(page.getByText(EN.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
 
       await page.getByTestId('language-selector').selectOption('de')
       setLocale('de')
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expect(page.getByText(DE.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
       expect(await page.evaluate((key) => window.localStorage.getItem(key), LANGUAGE_STORAGE_KEY)).toBe(
         'de',
       )
 
       await page.reload()
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expect(page.getByText(DE.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
 
       await page.evaluate(
@@ -219,7 +334,7 @@ test.describe('Localization', () => {
       )
       setLocale('en')
       await page.reload()
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
+      await expect(page.getByText(EN.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
     })
 
@@ -240,32 +355,23 @@ test.describe('Localization', () => {
 
       await page.getByTestId('language-selector').selectOption('de')
       setLocale('de')
-      await expect(page).toHaveTitle('Kilometerstand')
-      await expect(page.locator('html')).toHaveAttribute('lang', 'de')
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expect(page).toHaveTitle(DE.title)
+      await expect(page.locator('html')).toHaveAttribute('lang', DE.docLang)
+      await expect(page.getByText(DE.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
-      await expect(card).toContainText('1 Erfassung · 1 Bericht')
+      await expect(card).toContainText(DE.singleCounts)
       expect(navigations).toBe(0)
 
       await page.getByTestId('language-selector').selectOption('en')
       setLocale('en')
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
+      await expect(page.getByText(EN.subtitle)).toBeVisible()
       await expect(card).toContainText(`${formatKm(READING)} km`)
-      await expect(card).toContainText('1 reading · 1 report')
+      await expect(card).toContainText(EN.singleCounts)
       expect(navigations).toBe(0)
     })
 
     test('shows the load failure and retry in English', async ({ page }) => {
-      await page.route(APP_API, (route) => route.abort())
-      await page.goto('/')
-
-      await expect(page.getByText('Could not load the garage')).toBeVisible()
-      const retryButton = page.getByRole('button', { name: 'Retry' })
-      await expect(retryButton).toBeVisible()
-
-      await page.unroute(APP_API)
-      await retryButton.click()
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
+      await expectLoadFailureAndRetry(page, EN)
     })
 
     test('pluralizes the per-car counts in English', async ({ page }) => {
@@ -274,8 +380,7 @@ test.describe('Localization', () => {
       await seedPluralData(carId)
 
       await page.goto('/')
-      const card = cardFor(page, license)
-      await expect(card).toContainText('3 readings · 2 reports')
+      await expect(cardFor(page, license)).toContainText(EN.pluralCounts)
     })
 
     test('keeps the API values locale-independent', async ({ page }) => {
@@ -283,34 +388,7 @@ test.describe('Localization', () => {
       const carId = await seedCar('Volkswagen', 'Golf', license)
       await seedReadingAndReport(carId)
 
-      await page.goto('/')
-      await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
-
-      const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{
-        date: string
-        odometer_reading: number
-      }>
-      expect(records).toHaveLength(1)
-      expect(records[0].date).toBe(todayIso())
-      expect(records[0].odometer_reading).toBe(READING)
-
-      const reports = (await request(`/cars/${carId}/insurance-reports`)) as Array<{
-        date: string
-        odometer_reading: number
-        mileage_per_year: number
-      }>
-      expect(reports).toHaveLength(1)
-      expect(reports[0]).toMatchObject({
-        date: oneYearBeforeToday(),
-        odometer_reading: REPORTED_READING,
-        mileage_per_year: ANNUAL_MILEAGE_CAP,
-      })
-
-      const evaluation = (await request(`/cars/${carId}/evaluation`)) as {
-        theoretical_limit: number
-        delta: number | null
-      }
-      expect(evaluation).toEqual({ theoretical_limit: THEORETICAL_LIMIT, delta: OVER_BY })
+      await expectApiValuesLocaleIndependent(page, license, carId)
     })
 
     test('keeps the language selector visible while the car slideover is open', async ({ page }) => {
@@ -321,6 +399,8 @@ test.describe('Localization', () => {
       await page.goto('/')
       await cardFor(page, license).click()
       await expect(page.getByRole('dialog')).toBeVisible()
+      // The modal slideover puts the page in its inert scope while open, so
+      // the selector stays visible but is not clickable (tracked in #62).
       await expect(page.getByLabel('Language')).toBeVisible()
     })
   })
@@ -346,39 +426,12 @@ test.describe('Localization', () => {
       await seedReadingAndReport(carId)
 
       await page.goto('/')
-      await expect(page).toHaveTitle('Kilometerstand')
-      await expect(page.locator('html')).toHaveAttribute('lang', 'de')
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
-
-      const card = cardFor(page, license)
-      await expect(card).toBeVisible()
-      await expect(card).toContainText(`${formatKm(READING)} km`)
-      await expect(card).toContainText(formatDate(todayIso()))
-      await expect(card).toContainText(formatKm(ANNUAL_MILEAGE_CAP))
-      await expect(card.locator('[data-testid="theoretical-limit"]')).toHaveText(
-        formatKm(THEORETICAL_LIMIT),
-      )
-      await expect(card).toContainText('1 Erfassung · 1 Bericht')
-      await expect(page.getByRole('button', { name: '+ Auto hinzufügen' })).toBeVisible()
-
-      const select = page.getByTestId('language-selector')
-      await expect(select).toBeVisible()
-      await expect(select).toHaveValue('de')
-      await expect(select).toHaveAttribute('aria-label', 'Sprache')
-      await expect(select.locator('option')).toHaveText(['English', 'Deutsch'])
+      await expectGarageShell(page, DE)
+      await expectFormattedGarage(page, license, DE)
     })
 
     test('shows the load failure and retry in German', async ({ page }) => {
-      await page.route(APP_API, (route) => route.abort())
-      await page.goto('/')
-
-      await expect(page.getByText('Die Garage konnte nicht geladen werden')).toBeVisible()
-      const retryButton = page.getByRole('button', { name: 'Erneut versuchen' })
-      await expect(retryButton).toBeVisible()
-
-      await page.unroute(APP_API)
-      await retryButton.click()
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expectLoadFailureAndRetry(page, DE)
     })
 
     test('pluralizes the per-car counts in German', async ({ page }) => {
@@ -387,8 +440,7 @@ test.describe('Localization', () => {
       await seedPluralData(carId)
 
       await page.goto('/')
-      const card = cardFor(page, license)
-      await expect(card).toContainText('3 Erfassungen · 2 Berichte')
+      await expect(cardFor(page, license)).toContainText(DE.pluralCounts)
     })
 
     test('switches to English live and back to German', async ({ page }) => {
@@ -397,18 +449,18 @@ test.describe('Localization', () => {
       await seedReadingAndReport(carId)
 
       await page.goto('/')
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expect(page.getByText(DE.subtitle)).toBeVisible()
 
       await page.getByTestId('language-selector').selectOption('en')
       setLocale('en')
-      await expect(page).toHaveTitle('Mileage')
-      await expect(page.getByText('Every car at a glance.')).toBeVisible()
+      await expect(page).toHaveTitle(EN.title)
+      await expect(page.getByText(EN.subtitle)).toBeVisible()
       await expect(page.getByTestId('language-selector')).toHaveValue('en')
 
       await page.getByTestId('language-selector').selectOption('de')
       setLocale('de')
-      await expect(page).toHaveTitle('Kilometerstand')
-      await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
+      await expect(page).toHaveTitle(DE.title)
+      await expect(page.getByText(DE.subtitle)).toBeVisible()
       await expect(page.getByTestId('language-selector')).toHaveValue('de')
     })
 
@@ -417,28 +469,7 @@ test.describe('Localization', () => {
       const carId = await seedCar('Volkswagen', 'Golf', license)
       await seedReadingAndReport(carId)
 
-      await page.goto('/')
-      await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
-
-      const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{
-        date: string
-        odometer_reading: number
-      }>
-      expect(records).toHaveLength(1)
-      expect(records[0].date).toBe(todayIso())
-      expect(records[0].odometer_reading).toBe(READING)
-
-      const reports = (await request(`/cars/${carId}/insurance-reports`)) as Array<{
-        date: string
-        odometer_reading: number
-        mileage_per_year: number
-      }>
-      expect(reports).toHaveLength(1)
-      expect(reports[0]).toMatchObject({
-        date: oneYearBeforeToday(),
-        odometer_reading: REPORTED_READING,
-        mileage_per_year: ANNUAL_MILEAGE_CAP,
-      })
+      await expectApiValuesLocaleIndependent(page, license, carId)
     })
   })
 
@@ -455,10 +486,7 @@ test.describe('Localization', () => {
         const carId = await seedCar('Volkswagen', 'Golf', license)
         await seedReadingAndReport(carId)
 
-        await page.goto('/')
-        await expect(page.getByText('Every car at a glance.')).toBeVisible()
-        await expect(page.getByTestId('language-selector')).toHaveValue('en')
-        await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
+        await expectRegionalMapping(page, license, EN)
       })
     })
 
@@ -474,10 +502,7 @@ test.describe('Localization', () => {
         const carId = await seedCar('Volkswagen', 'Golf', license)
         await seedReadingAndReport(carId)
 
-        await page.goto('/')
-        await expect(page.getByText('Alle Autos auf einen Blick.')).toBeVisible()
-        await expect(page.getByTestId('language-selector')).toHaveValue('de')
-        await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
+        await expectRegionalMapping(page, license, DE)
       })
     })
 
@@ -493,10 +518,7 @@ test.describe('Localization', () => {
         const carId = await seedCar('Volkswagen', 'Golf', license)
         await seedReadingAndReport(carId)
 
-        await page.goto('/')
-        await expect(page.getByText('Every car at a glance.')).toBeVisible()
-        await expect(page.getByTestId('language-selector')).toHaveValue('en')
-        await expect(cardFor(page, license)).toContainText(`${formatKm(READING)} km`)
+        await expectRegionalMapping(page, license, EN)
       })
     })
   })

@@ -29,7 +29,7 @@ export function readStoredChoice(): Language | null {
 }
 
 /** Persists an explicit choice for future visits; a no-op outside a browser. */
-export function persistLocale(next: Language): void {
+function persistLocale(next: Language): void {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next)
@@ -58,7 +58,9 @@ export const i18n = createI18n({
 
 /**
  * Switches the interface language immediately (no reload) and remembers the
- * explicit choice in this browser.
+ * explicit choice in this browser. vue-i18n does not accept the locale Ref,
+ * so the ref that format.ts reads and the i18n instance's locale are synced
+ * here; the ref is the source of truth.
  */
 export function setLocale(next: Language): void {
   if (!isLanguage(next)) return

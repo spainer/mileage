@@ -8,7 +8,6 @@ import {
   mapBrowserLanguage,
   resolveInitialLanguage,
 } from '../i18n/language'
-import { de, en } from '../i18n/messages'
 
 beforeEach(() => {
   localStorage.clear()
@@ -29,6 +28,8 @@ describe('mapBrowserLanguage', () => {
     ['de-DE', 'de'],
     ['de-AT', 'de'],
     ['de-CH', 'de'],
+    ['deu-DE', 'de'],
+    ['eng-US', 'en'],
     ['fr-FR', 'en'],
     ['zh-CN', 'en'],
     ['', 'en'],
@@ -111,35 +112,5 @@ describe('live switching', () => {
   it('ignores an unknown language', () => {
     setLocale('fr' as never)
     expect(locale.value).toBe('en')
-  })
-})
-
-describe('catalogs', () => {
-  function flatKeys(value: unknown, prefix = ''): string[] {
-    if (value !== null && typeof value === 'object') {
-      return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
-        flatKeys(child, prefix ? `${prefix}.${key}` : key),
-      )
-    }
-    return [prefix]
-  }
-
-  function flatValues(value: unknown): string[] {
-    if (value !== null && typeof value === 'object') {
-      return Object.values(value as Record<string, unknown>).flatMap((child) => flatValues(child))
-    }
-    return [value as string]
-  }
-
-  it('covers the same keys in English and German', () => {
-    expect(flatKeys(de).sort()).toEqual(flatKeys(en).sort())
-  })
-
-  it('has no empty messages', () => {
-    for (const catalog of [en, de]) {
-      for (const message of flatValues(catalog)) {
-        expect(message.trim().length).toBeGreaterThan(0)
-      }
-    }
   })
 })

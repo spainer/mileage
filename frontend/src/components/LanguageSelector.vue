@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { i18n, locale, setLocale } from '../i18n'
-import type { Language } from '../i18n/language'
+import { isLanguage, languages, type Language } from '../i18n/language'
 
 const t = i18n.global.t
 
 // Language names are shown in their own language: the convention for
 // language pickers, so each option reads naturally to its speakers.
-const options: Array<{ value: Language; label: string }> = [
-  { value: 'en', label: 'English' },
-  { value: 'de', label: 'Deutsch' },
-]
+const NATIVE_NAMES: Record<Language, string> = {
+  en: 'English',
+  de: 'Deutsch',
+}
+
+const options = languages.map((value) => ({ value, label: NATIVE_NAMES[value] }))
 
 function onChange(event: Event) {
   const value = (event.target as HTMLSelectElement).value
-  if (value === 'en' || value === 'de') setLocale(value)
+  if (isLanguage(value)) setLocale(value)
 }
 </script>
 

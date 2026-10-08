@@ -14,13 +14,26 @@ export function isLanguage(value: unknown): value is Language {
 }
 
 /**
- * Maps a browser language tag (e.g. "de-DE", "en-GB") onto a generic
- * language. Unsupported primary languages and empty tags fall back to
- * English, so the app is always usable.
+ * The primary language subtags that map onto the supported generic
+ * languages, in two- and three-letter form (ISO 639-1/2/3): some browsers
+ * (older Safari) report the three-letter code, e.g. "deu-DE" or "eng-US".
+ */
+const PRIMARY_SUBTAGS: Record<string, Language> = {
+  en: 'en',
+  eng: 'en',
+  de: 'de',
+  ger: 'de',
+  deu: 'de',
+}
+
+/**
+ * Maps a browser language tag (e.g. "de-DE", "en-GB", "deu-DE") onto a
+ * generic language. Unsupported primary languages and empty tags fall back
+ * to English, so the app is always usable.
  */
 export function mapBrowserLanguage(tag: string): Language {
   const primary = tag.trim().toLowerCase().split('-')[0]
-  return primary === 'de' ? 'de' : 'en'
+  return PRIMARY_SUBTAGS[primary] ?? 'en'
 }
 
 /**
