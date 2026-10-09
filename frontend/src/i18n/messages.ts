@@ -52,7 +52,11 @@ export const en = {
     cancel: 'Cancel',
     delete: 'Delete',
     confirm: 'Confirm',
-    genericError: 'Something went wrong.',
+  },
+  errors: {
+    network: 'Could not reach the server. Please check your connection and try again.',
+    generic: 'Something went wrong.',
+    duplicateLicense: 'A car with this license already exists.',
   },
   carForm: {
     titleAdd: 'Add car',
@@ -151,7 +155,11 @@ export const de: Messages = {
     cancel: 'Abbrechen',
     delete: 'Löschen',
     confirm: 'Bestätigen',
-    genericError: 'Etwas ist schiefgelaufen.',
+  },
+  errors: {
+    network: 'Der Server ist nicht erreichbar. Bitte prüfe deine Verbindung und versuche es erneut.',
+    generic: 'Etwas ist schiefgelaufen.',
+    duplicateLicense: 'Ein Auto mit diesem Kennzeichen existiert bereits.',
   },
   carForm: {
     titleAdd: 'Auto hinzufügen',

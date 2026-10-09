@@ -59,6 +59,9 @@ def test_create_mileage_record_rejects_negative_odometer_reading(client):
     response = create_record(client, car["id"], odometer_reading=-1)
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "odometer_reading"
+    assert item["type"] == "greater_than_equal"
 
 
 def test_create_mileage_record_rejects_non_integer_odometer_reading(client):
@@ -70,6 +73,9 @@ def test_create_mileage_record_rejects_non_integer_odometer_reading(client):
     )
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "odometer_reading"
+    assert item["type"] == "int_from_float"
 
 
 def test_create_mileage_record_rejects_invalid_date(client):
@@ -81,6 +87,22 @@ def test_create_mileage_record_rejects_invalid_date(client):
     )
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "date"
+    assert item["type"] == "date_from_datetime_parsing"
+
+
+def test_create_mileage_record_reports_missing_fields_with_types(client):
+    car = create_car(client)
+
+    response = client.post(
+        f"/api/cars/{car['id']}/mileage-records",
+        json={},
+    )
+
+    assert response.status_code == 400
+    by_key = {item["key"]: item["type"] for item in response.json()["extra"]}
+    assert by_key == {"date": "missing", "odometer_reading": "missing"}
 
 
 def test_list_mileage_records(client):
@@ -364,6 +386,8 @@ def test_create_mileage_record_rejects_below_prior(client):
 
     assert response.status_code == 409
     assert "1,000" in response.json()["detail"]
+    assert response.json()["extra"]["code"] == "odometer_sequence_too_low"
+    assert response.json()["extra"]["params"]["km"] == 1000
 
 
 def test_create_mileage_record_accepts_equal_to_prior(client):
@@ -387,6 +411,8 @@ def test_create_mileage_record_rejects_above_later(client):
 
     assert response.status_code == 409
     assert "2,000" in response.json()["detail"]
+    assert response.json()["extra"]["code"] == "odometer_sequence_too_high"
+    assert response.json()["extra"]["params"]["km"] == 2000
 
 
 def test_create_mileage_record_accepts_equal_to_later(client):
@@ -410,6 +436,8 @@ def test_create_mileage_record_rejects_same_date_mismatch(client):
 
     assert response.status_code == 409
     assert "1,500" in response.json()["detail"]
+    assert response.json()["extra"]["code"] == "odometer_sequence_same_date"
+    assert response.json()["extra"]["params"]["km"] == 1500
 
 
 def test_create_mileage_record_rejects_outside_bounds(client):
@@ -428,7 +456,11 @@ def test_create_mileage_record_rejects_outside_bounds(client):
     )
 
     assert too_low.status_code == 409
+    assert too_low.json()["extra"]["code"] == "odometer_sequence_too_low"
+    assert too_low.json()["extra"]["params"]["km"] == 1000
     assert too_high.status_code == 409
+    assert too_high.json()["extra"]["code"] == "odometer_sequence_too_high"
+    assert too_high.json()["extra"]["params"]["km"] == 3000
     assert just_right.status_code == 201
 
 
@@ -473,6 +505,8 @@ def test_update_mileage_record_respects_other_entries(client):
 
     assert response.status_code == 409
     assert "2,000" in response.json()["detail"]
+    assert response.json()["extra"]["code"] == "odometer_sequence_too_high"
+    assert response.json()["extra"]["params"]["km"] == 2000
 
 
 def test_update_mileage_record_can_move_into_range(client):
@@ -506,3 +540,5 @@ def test_create_mileage_record_constrained_by_insurance_report(client):
 
     assert response.status_code == 409
     assert "1,000" in response.json()["detail"]
+    assert response.json()["extra"]["code"] == "odometer_sequence_too_low"
+    assert response.json()["extra"]["params"]["km"] == 1000

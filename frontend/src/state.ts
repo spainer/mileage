@@ -18,7 +18,7 @@ export const mileageRecords = ref<MileageRecord[]>([])
 export const insuranceReports = ref<InsuranceReport[]>([])
 export const evaluations = ref<Record<number, TodayEvaluation | null>>({})
 export const loading = ref(false)
-export const error = ref<string | null>(null)
+export const error = ref<Error | null>(null)
 
 export async function load(): Promise<void> {
   loading.value = true
@@ -44,7 +44,9 @@ export async function load(): Promise<void> {
       }),
     )
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to load the garage.'
+    // Only the error's type matters here: non-ApiError values always map to
+    // the localized generic message, so the label is internal, never UI copy.
+    error.value = err instanceof Error ? err : new Error('unknown error')
   } finally {
     loading.value = false
   }

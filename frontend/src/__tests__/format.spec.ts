@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { ApiError, ApiErrorCode, type ValidationField } from '../api/client'
 import {
   carLabel,
   deltaLabel,
@@ -106,28 +107,129 @@ describe('carLabel', () => {
 })
 
 describe('errorMessage', () => {
-  it('passes through an Error message in English', () => {
-    expect(errorMessage(new Error('Could not load the garage.'))).toBe(
-      'Could not load the garage.',
+  const apiError = (
+    code: string | null,
+    params: Record<string, number | string> | null = null,
+    fields: ValidationField[] = [],
+  ) =>
+    // The raw message must never reach the UI: only the translated code matters.
+    new ApiError('raw server detail that must not reach the UI', null, code, params, fields)
+
+  it('translates a network failure in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.network))).toBe(
+      'Could not reach the server. Please check your connection and try again.',
     )
   })
 
-  it('passes through an Error message in German', () => {
+  it('translates a network failure in German', () => {
     setLocale('de')
-    expect(errorMessage(new Error('Die Garage konnte nicht geladen werden.'))).toBe(
-      'Die Garage konnte nicht geladen werden.',
+    expect(errorMessage(apiError(ApiErrorCode.network))).toBe(
+      'Der Server ist nicht erreichbar. Bitte prüfe deine Verbindung und versuche es erneut.',
     )
   })
 
-  it('falls back to the generic message in English', () => {
+  it('translates a duplicate license conflict in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.duplicateLicense))).toBe(
+      'A car with this license already exists.',
+    )
+  })
+
+  it('translates a duplicate license conflict in German', () => {
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.duplicateLicense))).toBe(
+      'Ein Auto mit diesem Kennzeichen existiert bereits.',
+    )
+  })
+
+  it('translates sequence conflicts with the localized km value in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.sequenceSameDate, { km: 46000 }))).toBe(
+      'Odometer reading must be 46,000 km.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow, { km: 46000 }))).toBe(
+      'Odometer reading must be at least 46,000 km.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooHigh, { km: 46000 }))).toBe(
+      'Odometer reading must be at most 46,000 km.',
+    )
+  })
+
+  it('translates sequence conflicts with the localized km value in German', () => {
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.sequenceSameDate, { km: 46000 }))).toBe(
+      'Die Erfassung muss 46.000 km betragen.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow, { km: 46000 }))).toBe(
+      'Die Erfassung muss mindestens 46.000 km betragen.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooHigh, { km: 46000 }))).toBe(
+      'Die Erfassung darf höchstens 46.000 km betragen.',
+    )
+  })
+
+  it('falls back to the generic message when the sequence code misses its km', () => {
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow))).toBe('Something went wrong.')
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow))).toBe('Etwas ist schiefgelaufen.')
+  })
+
+  it('translates validation fields by field name and rule in English', () => {
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'value_error' }])),
+    ).toBe('License must be a valid German license (e.g. M-AB1234).')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'missing' }]))).toBe(
+      'All fields are required.',
+    )
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'manufacturer', type: 'missing' }])),
+    ).toBe('All fields are required.')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'date', type: 'missing' }]))).toBe(
+      'A date is required.',
+    )
+    expect(
+      errorMessage(
+        apiError(ApiErrorCode.validation, null, [{ key: 'odometer_reading', type: 'missing' }]),
+      ),
+    ).toBe('An odometer reading in km (>= 0) is required.')
+    expect(
+      errorMessage(
+        apiError(ApiErrorCode.validation, null, [{ key: 'mileage_per_year', type: 'missing' }]),
+      ),
+    ).toBe('An annual mileage cap in km/year (>= 0) is required.')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'unknown', type: 'missing' }]))).toBe(
+      'Something went wrong.',
+    )
+  })
+
+  it('translates validation fields in German', () => {
+    setLocale('de')
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'value_error' }])),
+    ).toBe('Das Kennzeichen muss ein gültiges deutsches Kennzeichen sein (z. B. M-AB1234).')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'date', type: 'missing' }]))).toBe(
+      'Ein Datum ist erforderlich.',
+    )
+  })
+
+  it('uses the localized generic message for a plain Error in English', () => {
+    expect(errorMessage(new Error('Could not load the garage.'))).toBe('Something went wrong.')
     expect(errorMessage('unexpected')).toBe('Something went wrong.')
     expect(errorMessage(null)).toBe('Something went wrong.')
   })
 
-  it('falls back to the generic message in German', () => {
+  it('uses the localized generic message for a plain Error in German', () => {
     setLocale('de')
+    expect(errorMessage(new Error('Die Garage konnte nicht geladen werden.'))).toBe(
+      'Etwas ist schiefgelaufen.',
+    )
     expect(errorMessage('unexpected')).toBe('Etwas ist schiefgelaufen.')
     expect(errorMessage(null)).toBe('Etwas ist schiefgelaufen.')
+  })
+
+  it('uses the localized generic message for an unknown code', () => {
+    expect(errorMessage(apiError('some_new_code'))).toBe('Something went wrong.')
+    expect(errorMessage(apiError(null))).toBe('Something went wrong.')
+    setLocale('de')
+    expect(errorMessage(apiError('some_new_code'))).toBe('Etwas ist schiefgelaufen.')
   })
 })
 

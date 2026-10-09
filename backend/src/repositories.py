@@ -1,13 +1,13 @@
 import datetime
 
-from litestar.exceptions import HTTPException, NotFoundException
-from litestar.status_codes import HTTP_409_CONFLICT
+from litestar.exceptions import NotFoundException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import models
+from src.errors import DUPLICATE_LICENSE, conflict
 from src.evaluation import evaluate_record, evaluate_records, evaluate_today
 from src.odometer_sequence import fetch_entries_for_car, validate as validate_sequence
 from src.schemas import (
@@ -33,9 +33,13 @@ async def _enforce_sequence(
     exclude: tuple[int, str] | None = None,
 ) -> None:
     entries = await fetch_entries_for_car(session, car_id, exclude=exclude)
-    message = validate_sequence(entries, date_, odometer_reading)
-    if message is not None:
-        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=message)
+    violation = validate_sequence(entries, date_, odometer_reading)
+    if violation is not None:
+        raise conflict(
+            violation.message,
+            code=violation.code,
+            params={"km": violation.km},
+        )
 
 
 async def get_car_or_404(session: AsyncSession, car_id: int) -> models.Car:
@@ -81,9 +85,9 @@ class CarRepository:
             await self._session.commit()
         except IntegrityError:
             await self._session.rollback()
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail="A car with this license already exists",
+            raise conflict(
+                "A car with this license already exists",
+                code=DUPLICATE_LICENSE,
             )
 
     async def list(self) -> list[Car]:

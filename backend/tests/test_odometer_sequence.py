@@ -2,6 +2,11 @@ from datetime import date
 
 import pytest
 
+from src.errors import (
+    ODOMETER_SEQUENCE_SAME_DATE,
+    ODOMETER_SEQUENCE_TOO_HIGH,
+    ODOMETER_SEQUENCE_TOO_LOW,
+)
 from src.odometer_sequence import (
     Bounds,
     Entry,
@@ -103,34 +108,40 @@ class TestValidate:
             is None
         )
 
-    def test_below_lower_rejected(self) -> None:
-        msg = validate_entry(
+    def test_below_lower_rejected_with_code_and_bound(self) -> None:
+        violation = validate_entry(
             [e(id_=1, day="2025-06-01", reading=1000)],
             date(2026, 1, 1),
             999,
         )
-        assert msg is not None
-        assert "1,000" in msg
-        assert "at least" in msg.lower()
+        assert violation is not None
+        assert violation.code == ODOMETER_SEQUENCE_TOO_LOW
+        assert violation.km == 1000
+        assert "1,000" in violation.message
+        assert "at least" in violation.message.lower()
 
-    def test_above_upper_rejected(self) -> None:
-        msg = validate_entry(
+    def test_above_upper_rejected_with_code_and_bound(self) -> None:
+        violation = validate_entry(
             [e(id_=1, day="2026-06-01", reading=2000)],
             date(2026, 1, 1),
             2001,
         )
-        assert msg is not None
-        assert "2,000" in msg
-        assert "at most" in msg.lower()
+        assert violation is not None
+        assert violation.code == ODOMETER_SEQUENCE_TOO_HIGH
+        assert violation.km == 2000
+        assert "2,000" in violation.message
+        assert "at most" in violation.message.lower()
 
-    def test_same_date_value_must_equal(self) -> None:
-        msg = validate_entry(
+    def test_same_date_value_must_equal_with_code_and_value(self) -> None:
+        violation = validate_entry(
             [e(id_=1, day="2026-01-01", reading=1500)],
             date(2026, 1, 1),
             1501,
         )
-        assert msg is not None
-        assert "1,500" in msg
+        assert violation is not None
+        assert violation.code == ODOMETER_SEQUENCE_SAME_DATE
+        assert violation.km == 1500
+        assert "1,500" in violation.message
 
     def test_same_date_value_match_accepted(self) -> None:
         assert (
@@ -167,13 +178,13 @@ class TestValidate:
         )
 
     def test_messages_include_units(self) -> None:
-        msg = validate_entry(
+        violation = validate_entry(
             [e(id_=1, day="2025-06-01", reading=1000)],
             date(2026, 1, 1),
             999,
         )
-        assert msg is not None
-        assert "km" in msg
+        assert violation is not None
+        assert "km" in violation.message
 
 
 class TestBoundsHint:

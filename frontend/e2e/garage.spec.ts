@@ -127,7 +127,7 @@ test.describe('Garage', () => {
     await modal.getByLabel('License').fill(duplicateLicense)
     await modal.getByRole('button', { name: 'Add car' }).click()
     await expect(modal.locator('[role="alert"]')).toHaveText(
-      'A car with this license already exists',
+      'A car with this license already exists.',
     )
 
     createdLicense = randomLicense()

@@ -6,7 +6,7 @@ import CarFormModal from '../components/CarFormModal.vue'
 import CarSlideover from '../components/CarSlideover.vue'
 import LanguageSelector from '../components/LanguageSelector.vue'
 import LicensePlate from '../components/LicensePlate.vue'
-import { carLabel, evaluationLabel, formatDate, formatKm } from '../format'
+import { carLabel, evaluationLabel, errorMessage, formatDate, formatKm } from '../format'
 import { i18n } from '../i18n'
 import { evaluationToneClasses, theme } from '../theme'
 import {
@@ -107,7 +107,7 @@ function onSlideoverClose() {
       color="error"
       variant="solid"
       :title="t('garage.loadFailedTitle')"
-      :description="error"
+      :description="errorMessage(error)"
       :actions="[
         { label: t('garage.retry'), color: 'error', variant: 'solid', size: 'sm', onClick: retry },
       ]"

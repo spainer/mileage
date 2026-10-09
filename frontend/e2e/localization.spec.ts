@@ -159,6 +159,8 @@ interface LocaleExpectations {
   pluralCounts: string
   loadFailedTitle: string
   retry: string
+  networkError: string
+  genericError: string
 }
 
 const EN: LocaleExpectations = {
@@ -171,6 +173,8 @@ const EN: LocaleExpectations = {
   pluralCounts: '3 readings · 2 reports',
   loadFailedTitle: 'Could not load the garage',
   retry: 'Retry',
+  networkError: 'Could not reach the server. Please check your connection and try again.',
+  genericError: 'Something went wrong.',
 }
 
 const DE: LocaleExpectations = {
@@ -183,6 +187,8 @@ const DE: LocaleExpectations = {
   pluralCounts: '3 Erfassungen · 2 Berichte',
   loadFailedTitle: 'Die Garage konnte nicht geladen werden',
   retry: 'Erneut versuchen',
+  networkError: 'Der Server ist nicht erreichbar. Bitte prüfe deine Verbindung und versuche es erneut.',
+  genericError: 'Etwas ist schiefgelaufen.',
 }
 
 // The document metadata and the selector itself, in the selected language.
@@ -218,17 +224,41 @@ async function expectFormattedGarage(
 }
 
 // The API failure state in the selected language, then recovery after Retry.
+// The network failure must surface the localized network message, never raw
+// engine text.
 async function expectLoadFailureAndRetry(page: Page, ex: LocaleExpectations): Promise<void> {
   await page.route(APP_API, (route) => route.abort())
   await page.goto('/')
 
   await expect(page.getByText(ex.loadFailedTitle)).toBeVisible()
+  await expect(page.getByText(ex.networkError)).toBeVisible()
   const retryButton = page.getByRole('button', { name: ex.retry })
   await expect(retryButton).toBeVisible()
 
   await page.unroute(APP_API)
   await retryButton.click()
   await expect(page.getByText(ex.subtitle)).toBeVisible()
+}
+
+// An unknown server error with untranslatable raw body content: the UI shows
+// the localized generic message and never the server's own text.
+async function expectServerErrorMessage(
+  page: Page,
+  ex: LocaleExpectations,
+  rawDetail: string,
+): Promise<void> {
+  await page.route(APP_API, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ status_code: 500, detail: rawDetail }),
+    }),
+  )
+  await page.goto('/')
+
+  await expect(page.getByText(ex.loadFailedTitle)).toBeVisible()
+  await expect(page.getByText(ex.genericError)).toBeVisible()
+  await expect(page.getByText(rawDetail)).toHaveCount(0)
 }
 
 // The seeded values as the app displays them and as the API still serves
@@ -368,6 +398,7 @@ interface FormExpectations {
   license: string
   licenseInvalid: string
   allRequired: string
+  duplicateLicense: string
   save: string
   cancel: string
   delete: string
@@ -404,6 +435,7 @@ const FORMS_EN: FormExpectations = {
   license: 'License',
   licenseInvalid: 'License must be a valid German license (e.g. M-AB1234).',
   allRequired: 'All fields are required.',
+  duplicateLicense: 'A car with this license already exists.',
   save: 'Save',
   cancel: 'Cancel',
   delete: 'Delete',
@@ -441,6 +473,7 @@ const FORMS_DE: FormExpectations = {
   license: 'Kennzeichen',
   licenseInvalid: 'Das Kennzeichen muss ein gültiges deutsches Kennzeichen sein (z. B. M-AB1234).',
   allRequired: 'Alle Felder sind erforderlich.',
+  duplicateLicense: 'Ein Auto mit diesem Kennzeichen existiert bereits.',
   save: 'Speichern',
   cancel: 'Abbrechen',
   delete: 'Löschen',
@@ -647,6 +680,29 @@ async function expectCarFormFlow(
   expect(remaining.some((candidate) => candidate.license === license)).toBe(false)
 }
 
+// Submitting a license the backend already knows: the 409 conflict is reported
+// with the localized duplicate-license message, the modal stays open, and the
+// server's raw detail never reaches the UI.
+async function expectDuplicateLicenseConflict(
+  page: Page,
+  ex: LocaleExpectations,
+  forms: FormExpectations,
+  license: string,
+): Promise<void> {
+  await page.goto('/')
+  await page.getByRole('button', { name: ex.addCar }).click()
+  const modal = page.getByRole('dialog', { name: forms.addCarTitle })
+  await expect(modal).toBeVisible()
+
+  await modal.getByLabel(forms.manufacturer).fill('Volkswagen')
+  await modal.getByLabel(forms.model).fill('Golf')
+  await modal.getByLabel(forms.license).fill(license)
+  await modal.getByRole('button', { name: forms.addCarTitle }).click()
+
+  await expect(modal.locator('[role="alert"]')).toHaveText(forms.duplicateLicense)
+  await expect(modal).toBeVisible()
+}
+
 // The mileage record form in the selected language: the labels, the
 // required-field and sequence messages with the locale's number conventions,
 // the stored values, and the delete confirmation (#59).
@@ -732,6 +788,53 @@ async function expectReadingFormFlow(
   await expect(row).toHaveCount(0)
   const after = (await request(`/cars/${carId}/mileage-records`)) as Array<{ date: string }>
   expect(after).toHaveLength(1)
+}
+
+// A sequence conflict the backend detects because the UI's state is stale:
+// the server moves today's reading while the UI keeps its loaded value, and
+// the UI still submits the old one. The modal stays open and reports the
+// translated same-date message with the server's value, formatted in the
+// active locale.
+async function expectStaleSequenceConflict(
+  page: Page,
+  license: string,
+  carId: number,
+  forms: FormExpectations,
+  staleValue: number,
+  serverValue: number,
+): Promise<void> {
+  await page.goto('/')
+  await expect(cardFor(page, license)).toContainText(`${formatKm(staleValue)} km`)
+
+  // A second client moves today's reading while the UI keeps its stale view.
+  const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{
+    id: number
+    date: string
+  }>
+  const todayRecord = records.find((record) => record.date === todayIso())
+  if (!todayRecord) throw new Error('Seeded today record not found')
+  await request(`/cars/${carId}/mileage-records/${todayRecord.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ odometer_reading: serverValue }),
+  })
+
+  await cardFor(page, license).click()
+  const slideover = page.getByRole('dialog').filter({ hasText: formatPlate(license) })
+  await slideover.getByRole('button', { name: forms.addReading }).click()
+  const modal = page.getByRole('dialog', { name: forms.addReading })
+  await expect(modal).toBeVisible()
+
+  // The UI still believes the stale value, so its own check passes and the
+  // Save button enables; the server, which holds the newer value, rejects.
+  await modal.getByLabel(forms.date).fill(todayIso())
+  await modal.getByLabel(forms.reading).fill(String(staleValue))
+  await expect(modal.getByRole('button', { name: forms.addReading })).toBeEnabled()
+  await modal.getByRole('button', { name: forms.addReading }).click()
+
+  await expect(modal.locator('[role="alert"]')).toHaveText(
+    forms.sameDateError(formatKm(serverValue)),
+  )
+  await expect(modal).toBeVisible()
 }
 
 // The insurance report form in the selected language: the labels, the
@@ -921,6 +1024,31 @@ test.describe('Localization', () => {
       await expectLoadFailureAndRetry(page, EN)
     })
 
+    test('translates the duplicate-license conflict in English', async ({ page }) => {
+      const license = randomLicense()
+      await seedCar('Volkswagen', 'Golf', license)
+
+      await expectDuplicateLicenseConflict(page, EN, FORMS_EN, license)
+    })
+
+    test('translates the stale-state sequence conflict in English', async ({ page }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectStaleSequenceConflict(page, license, carId, FORMS_EN, READING, 46_000)
+    })
+
+    test('shows the localized generic message for an unknown server error in English', async ({
+      page,
+    }) => {
+      await expectServerErrorMessage(
+        page,
+        EN,
+        'Internal error: connection pool exhausted at db-prod-3:5432 (trace 0xdeadbeef)',
+      )
+    })
+
     test('pluralizes the per-car counts in English', async ({ page }) => {
       const license = randomLicense()
       const carId = await seedCar('Volkswagen', 'Golf', license)
@@ -1022,6 +1150,31 @@ test.describe('Localization', () => {
 
     test('shows the load failure and retry in German', async ({ page }) => {
       await expectLoadFailureAndRetry(page, DE)
+    })
+
+    test('translates the duplicate-license conflict in German', async ({ page }) => {
+      const license = randomLicense()
+      await seedCar('Volkswagen', 'Golf', license)
+
+      await expectDuplicateLicenseConflict(page, DE, FORMS_DE, license)
+    })
+
+    test('translates the stale-state sequence conflict in German', async ({ page }) => {
+      const license = randomLicense()
+      const carId = await seedCar('Volkswagen', 'Golf', license)
+      await seedReadingAndReport(carId)
+
+      await expectStaleSequenceConflict(page, license, carId, FORMS_DE, READING, 46_000)
+    })
+
+    test('shows the localized generic message for an unknown server error in German', async ({
+      page,
+    }) => {
+      await expectServerErrorMessage(
+        page,
+        DE,
+        'Internal error: connection pool exhausted at db-prod-3:5432 (trace 0xdeadbeef)',
+      )
     })
 
     test('pluralizes the per-car counts in German', async ({ page }) => {

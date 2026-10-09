@@ -27,6 +27,9 @@ def test_get_missing_car_returns_404(client):
     response = client.get("/api/cars/999")
 
     assert response.status_code == 404
+    # Unknown errors carry no machine-readable code, so clients fall back
+    # to their localized generic message.
+    assert "extra" not in response.json()
 
 
 def test_list_cars(client):
@@ -128,6 +131,9 @@ def test_create_car_rejects_license_with_invalid_characters(client):
     )
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "license"
+    assert item["type"] == "value_error"
 
 
 def test_create_car_rejects_license_longer_than_10_characters(client):
@@ -137,6 +143,32 @@ def test_create_car_rejects_license_longer_than_10_characters(client):
     )
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "license"
+    assert item["type"] == "value_error"
+
+
+def test_create_car_reports_missing_fields_with_types(client):
+    response = client.post(
+        "/api/cars",
+        json={"manufacturer": "VW", "model": "Golf"},
+    )
+
+    assert response.status_code == 400
+    by_key = {item["key"]: item["type"] for item in response.json()["extra"]}
+    assert by_key == {"license": "missing"}
+
+
+def test_create_car_reports_all_missing_fields_with_types(client):
+    response = client.post("/api/cars", json={})
+
+    assert response.status_code == 400
+    by_key = {item["key"]: item["type"] for item in response.json()["extra"]}
+    assert by_key == {
+        "manufacturer": "missing",
+        "model": "missing",
+        "license": "missing",
+    }
 
 
 def test_create_car_rejects_duplicate_license(client):
@@ -151,6 +183,7 @@ def test_create_car_rejects_duplicate_license(client):
     )
 
     assert response.status_code == 409
+    assert response.json()["extra"]["code"] == "duplicate_license"
 
 
 def test_create_car_rejects_duplicate_license_ignoring_case(client):
@@ -192,6 +225,7 @@ def test_update_car_rejects_duplicate_license(client):
     response = client.patch(f"/api/cars/{second['id']}", json={"license": "b-cd1234"})
 
     assert response.status_code == 409
+    assert response.json()["extra"]["code"] == "duplicate_license"
 
 
 def test_update_car_rejects_license_with_invalid_characters(client):
@@ -203,6 +237,9 @@ def test_update_car_rejects_license_with_invalid_characters(client):
     response = client.patch(f"/api/cars/{created['id']}", json={"license": "GOLF!"})
 
     assert response.status_code == 400
+    item = response.json()["extra"][0]
+    assert item["key"] == "license"
+    assert item["type"] == "value_error"
 
 
 def test_update_car_rejects_license_longer_than_10_characters(client):

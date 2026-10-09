@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError } from '../api/client'
+import { ApiError, ApiErrorCode } from '../api/client'
 import {
   isStaleAssetFailure,
   markRecoveryAttempt,
@@ -24,8 +24,12 @@ describe('isStaleAssetFailure', () => {
   })
 
   it('does not classify ordinary API request failures', () => {
-    expect(isStaleAssetFailure(new ApiError('Could not reach the server.', null))).toBe(false)
-    expect(isStaleAssetFailure(new ApiError('Request failed with status 500', 500))).toBe(false)
+    expect(
+      isStaleAssetFailure(new ApiError('Could not reach the server.', null, ApiErrorCode.network, null, [])),
+    ).toBe(false)
+    expect(isStaleAssetFailure(new ApiError('Request failed with status 500', 500, null, null, []))).toBe(
+      false,
+    )
   })
 
   it('does not classify unrelated values', () => {

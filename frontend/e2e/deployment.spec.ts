@@ -324,7 +324,10 @@ test.describe('Deployment', () => {
 
     await page.goto(PREVIEW_URL)
     await expect(page.getByText('Could not load the garage')).toBeVisible()
-    await expect(page.getByText('boom', { exact: true })).toBeVisible()
+    // The raw server detail never reaches the UI; the localized generic
+    // message is shown instead.
+    await expect(page.getByText('Something went wrong.')).toBeVisible()
+    await expect(page.getByText('boom', { exact: true })).toHaveCount(0)
 
     // An API failure is not a stale-asset failure: no reload, no fallback.
     expect(documentLoads()).toBe(1)

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../api/client'
 import { todayIso } from '../format'
 import * as state from '../state'
 import type { EntryRow, LatestEntry } from '../state'
@@ -155,12 +156,14 @@ describe('load', () => {
     expect(state.loading.value).toBe(false)
   })
 
-  it('records a network failure as an error and keeps the state empty', async () => {
+  it('records a network failure as an ApiError and keeps the state empty', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
 
     await state.load()
 
-    expect(state.error.value).toBe('Could not reach the server.')
+    expect(state.error.value).toBeInstanceOf(ApiError)
+    expect((state.error.value as ApiError).code).toBe('network')
+    expect((state.error.value as ApiError).status).toBeNull()
     expect(state.cars.value).toEqual([])
     expect(state.mileageRecords.value).toEqual([])
     expect(state.insuranceReports.value).toEqual([])
@@ -168,14 +171,16 @@ describe('load', () => {
     expect(state.loading.value).toBe(false)
   })
 
-  it('carries the server detail of an error response into the error state', async () => {
+  it('stores the server error without a machine code for an unknown server error', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ status_code: 500, detail: 'Database on fire' }, 500),
     )
 
     await state.load()
 
-    expect(state.error.value).toBe('Database on fire')
+    expect(state.error.value).toBeInstanceOf(ApiError)
+    expect((state.error.value as ApiError).status).toBe(500)
+    expect((state.error.value as ApiError).code).toBeNull()
     expect(state.cars.value).toEqual([])
   })
 
@@ -184,7 +189,8 @@ describe('load', () => {
     fetchMock.mockImplementation((url: string) => route(url))
 
     await state.load()
-    expect(state.error.value).toBe('Could not reach the server.')
+    expect(state.error.value).toBeInstanceOf(ApiError)
+    expect((state.error.value as ApiError).code).toBe('network')
 
     await state.load()
 
