@@ -1,8 +1,9 @@
 from pathlib import Path, PurePath
 from typing import Any, Callable
 
-from litestar import Litestar, Router, get
-from litestar.exceptions import NotFoundException
+from litestar import Litestar, Request, Router, Response, get
+from litestar.exceptions import NotFoundException, ValidationException
+from litestar.exceptions.responses import create_exception_response
 from litestar.file_system import BaseLocalFileSystem
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import SwaggerRenderPlugin
@@ -72,6 +73,45 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _pydantic_errors(exc: BaseException) -> list[dict[str, object]]:
+    """Recover the machine-readable pydantic error dicts from the cause chain.
+
+    Litestar wraps pydantic's ``ValidationError`` in a validation error whose
+    ``errors`` attribute carries the pydantic error dicts (``type``, ``loc``,
+    ``msg``, ``input``). The items of ``ValidationException.extra`` are built
+    from the very same list in the same order, so the two are index-aligned.
+    """
+    cause = exc.__cause__ if exc.__cause__ is not None else exc.__context__
+    while cause is not None:
+        errors = getattr(cause, "errors", None)
+        if (
+            isinstance(errors, list)
+            and errors
+            and all(
+                isinstance(item, dict) and "type" in item and "loc" in item
+                for item in errors
+            )
+        ):
+            return errors
+        cause = cause.__cause__ if cause.__cause__ is not None else cause.__context__
+    return []
+
+
+def _validation_error_handler(request: Request, exc: ValidationException) -> Response:
+    """Ship the pydantic error ``type`` next to every extra item.
+
+    Together with the item's ``key`` (the field name) the ``type`` forms the
+    stable machine-readable code for a failed validation (e.g. ``license`` +
+    ``value_error``, ``date`` + ``missing``).
+    """
+    extra = exc.extra
+    if isinstance(extra, list):
+        for item, error in zip(extra, _pydantic_errors(exc)):
+            if isinstance(item, dict):
+                item.setdefault("type", error["type"])
+    return create_exception_response(request, exc)
+
+
 def create_spa_router(static_dir: Path) -> Router:
     static_files = StaticFiles(
         is_html_mode=False,
@@ -116,6 +156,7 @@ def create_app(static_dir: Path | None) -> Litestar:
         route_handlers.append(create_spa_router(static_dir))
     return Litestar(
         route_handlers=route_handlers,
+        exception_handlers={ValidationException: _validation_error_handler},
         middleware=[(ApiCacheControlMiddleware, {"path_prefix": "/api"})],
         lifespan=[lifespan],
         openapi_config=OpenAPIConfig(

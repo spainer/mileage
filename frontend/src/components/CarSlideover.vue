@@ -2,10 +2,13 @@
 import { ref, watch } from 'vue'
 
 import { carLabel } from '../format'
+import { i18n } from '../i18n'
 import type { Car } from '../types'
 import CarDetails from './CarDetails.vue'
 import CarFormModal from './CarFormModal.vue'
 import LicensePlate from './LicensePlate.vue'
+
+const t = i18n.global.t
 
 const props = defineProps<{ car: Car | null }>()
 const emit = defineEmits<{ close: []; 'car-deleted': [carId: number] }>()
@@ -56,7 +59,7 @@ watch(
         size="sm"
         variant="ghost"
         icon="i-lucide-pencil"
-        aria-label="Edit car"
+        :aria-label="t('car.editCar')"
         @click="openEdit"
       />
     </template>

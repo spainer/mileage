@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import App from './App.vue'
 import { handleStaleAssetError, installStaleAssetRecovery } from './appRecovery'
+import { i18n } from './i18n'
 import { applyTheme } from './theme'
 import './assets/main.css'
 
@@ -36,5 +37,6 @@ router.onError((error) => {
 
 const app = createApp(App)
 app.use(ui)
+app.use(i18n)
 app.use(router)
 app.mount('#app')

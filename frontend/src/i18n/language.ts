@@ -1,0 +1,46 @@
+/**
+ * The two generic interface languages the app supports. Regional browser
+ * languages map onto these; any other language falls back to English.
+ */
+export type Language = 'en' | 'de'
+
+/** Browser storage key for the user's explicit language choice. */
+export const LANGUAGE_STORAGE_KEY = 'mileage.language'
+
+export const languages: readonly Language[] = ['en', 'de']
+
+export function isLanguage(value: unknown): value is Language {
+  return value === 'en' || value === 'de'
+}
+
+/**
+ * The primary language subtags that map onto the supported generic
+ * languages, in two- and three-letter form (ISO 639-1/2/3): some browsers
+ * (older Safari) report the three-letter code, e.g. "deu-DE" or "eng-US".
+ */
+const PRIMARY_SUBTAGS: Record<string, Language> = {
+  en: 'en',
+  eng: 'en',
+  de: 'de',
+  ger: 'de',
+  deu: 'de',
+}
+
+/**
+ * Maps a browser language tag (e.g. "de-DE", "en-GB", "deu-DE") onto a
+ * generic language. Unsupported primary languages and empty tags fall back
+ * to English, so the app is always usable.
+ */
+export function mapBrowserLanguage(tag: string): Language {
+  const primary = tag.trim().toLowerCase().split('-')[0]
+  return PRIMARY_SUBTAGS[primary] ?? 'en'
+}
+
+/**
+ * Resolves the language for a fresh visit: an explicit choice stored in this
+ * browser takes precedence over the detected browser language. A missing or
+ * invalid stored value falls back to browser-language detection.
+ */
+export function resolveInitialLanguage(browserTag: string, stored: unknown): Language {
+  return isLanguage(stored) ? stored : mapBrowserLanguage(browserTag)
+}

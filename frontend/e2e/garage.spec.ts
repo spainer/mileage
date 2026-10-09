@@ -127,7 +127,7 @@ test.describe('Garage', () => {
     await modal.getByLabel('License').fill(duplicateLicense)
     await modal.getByRole('button', { name: 'Add car' }).click()
     await expect(modal.locator('[role="alert"]')).toHaveText(
-      'A car with this license already exists',
+      'A car with this license already exists.',
     )
 
     createdLicense = randomLicense()
@@ -185,7 +185,7 @@ test.describe('Garage', () => {
     await expect(reportModal.getByLabel('Odometer reading (km)')).toHaveValue('')
     reportDate = oneYearBeforeToday()
     await reportModal.getByLabel('Date').fill(reportDate)
-    await expect(reportModal.getByText('Must be at most 45.678 km.')).toBeVisible()
+    await expect(reportModal.getByText(`Must be at most ${formatKm(READING)} km.`)).toBeVisible()
     await reportModal.getByLabel('Odometer reading (km)').fill(String(REPORTED_READING))
     await reportModal.getByLabel('Annual mileage cap (km/year)').fill(String(ANNUAL_MILEAGE_CAP))
     await reportModal.getByRole('button', { name: 'Add report' }).click()
@@ -242,21 +242,21 @@ test.describe('Garage', () => {
 
     await recordModal.getByLabel('Date').fill(recordDate)
     await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveValue('')
-    await expect(recordModal.getByText('Must be 45.678 km.')).toBeVisible()
+    await expect(recordModal.getByText(`Must be ${formatKm(READING)} km.`)).toBeVisible()
 
     await recordModal.getByLabel('Odometer reading (km)').fill('1000')
     await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveAttribute('aria-invalid', 'true')
-    await expect(recordModal.getByText('Odometer reading must be 45.678 km.')).toBeVisible()
+    await expect(recordModal.getByText(`Odometer reading must be ${formatKm(READING)} km.`)).toBeVisible()
     await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeDisabled()
 
     await recordModal.getByLabel('Odometer reading (km)').fill(String(READING))
     await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveAttribute('aria-invalid', 'false')
-    await expect(recordModal.getByText('Odometer reading must be 45.678 km.')).toBeHidden()
+    await expect(recordModal.getByText(`Odometer reading must be ${formatKm(READING)} km.`)).toBeHidden()
     await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeEnabled()
 
     await recordModal.getByLabel('Date').fill('2027-01-01')
     await expect(recordModal.getByLabel('Odometer reading (km)')).toHaveValue(String(READING))
-    await expect(recordModal.getByText('Must be at least 45.678 km.')).toBeVisible()
+    await expect(recordModal.getByText(`Must be at least ${formatKm(READING)} km.`)).toBeVisible()
     await expect(recordModal.getByRole('button', { name: 'Add reading' })).toBeEnabled()
 
     await recordModal.getByRole('button', { name: 'Cancel' }).click()

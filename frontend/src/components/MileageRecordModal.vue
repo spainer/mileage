@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import { useConfirm } from '../composables/useConfirm'
 import { errorMessage, formatDate, formatKm, todayIso } from '../format'
+import { i18n } from '../i18n'
 import { boundsHint, fieldError } from '../odometerSequence'
 import {
   createMileageRecord,
@@ -29,6 +30,8 @@ const saving = ref(false)
 const deleting = ref(false)
 
 const { confirm } = useConfirm()
+
+const t = i18n.global.t
 
 const excludeId = computed(() => (props.record ? props.record.id : undefined))
 
@@ -88,12 +91,12 @@ function save() {
   if (saving.value) return
   if (!canSubmit.value) {
     if (!form.date) {
-      error.value = 'A date is required.'
+      error.value = t('readingForm.dateRequired')
       return
     }
     const reading = Number(form.odometerReading)
     if (form.odometerReading === '' || Number.isNaN(reading) || reading < 0) {
-      error.value = 'An odometer reading in km (>= 0) is required.'
+      error.value = t('readingForm.readingRequired')
       return
     }
     if (readingError.value) {
@@ -125,9 +128,12 @@ async function remove() {
   const record = props.record
   if (!record || deleting.value) return
   const confirmed = await confirm({
-    title: 'Delete reading',
-    message: `This deletes the reading of ${formatKm(record.odometerReading)} km on ${formatDate(record.date)}.`,
-    confirmLabel: 'Delete',
+    title: t('readingForm.deleteTitle'),
+    message: t('readingForm.deleteMessage', {
+      km: formatKm(record.odometerReading),
+      date: formatDate(record.date),
+    }),
+    confirmLabel: t('form.delete'),
   })
   if (!confirmed) return
   deleting.value = true
@@ -146,8 +152,8 @@ async function remove() {
 <template>
   <UModal
     :open="open"
-    :title="record ? 'Edit reading' : 'Add reading'"
-    description="The odometer reading at a point in time."
+    :title="record ? t('car.editReading') : t('car.addReading')"
+    :description="t('readingForm.description')"
     @update:open="onOpenChange"
   >
     <template #body>
@@ -155,11 +161,11 @@ async function remove() {
         {{ error }}
       </div>
       <form class="grid gap-4" @submit.prevent="save">
-        <UFormField label="Date">
+        <UFormField :label="t('car.date')">
           <UInput v-model="form.date" type="date" />
         </UFormField>
         <UFormField
-          label="Odometer reading (km)"
+          :label="t('readingForm.reading')"
           :description="hint ?? undefined"
           :error="readingError ?? undefined"
         >
@@ -182,18 +188,18 @@ async function remove() {
           :disabled="saving || deleting"
           @click="remove"
         >
-          Delete
+          {{ t('form.delete') }}
         </UButton>
         <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="close">
-          Cancel
+          {{ t('form.cancel') }}
         </UButton>
         <UButton
           color="primary"
           :disabled="saving || deleting || !canSubmit"
           @click="save"
         >
-          {{ record ? 'Save' : 'Add reading' }}
+          {{ record ? t('form.save') : t('car.addReading') }}
         </UButton>
       </div>
     </template>

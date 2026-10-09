@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { ApiError, ApiErrorCode, type ValidationField } from '../api/client'
 import {
   carLabel,
   deltaLabel,
   evaluationLabel,
+  errorMessage,
   formatDate,
   formatKm,
   formatPlate,
@@ -11,38 +13,74 @@ import {
   normalizeLicense,
   todayIso,
 } from '../format'
+import { setLocale } from '../i18n'
 import type { Evaluation, TodayEvaluation } from '../types'
 
+beforeEach(() => {
+  localStorage.clear()
+  setLocale('en')
+})
+
+afterEach(() => {
+  setLocale('en')
+  localStorage.clear()
+})
+
 describe('formatDate', () => {
-  it('formats an ISO date as a de-DE short date', () => {
+  it('formats an ISO date as a de-DE short date in German', () => {
+    setLocale('de')
     expect(formatDate('2026-08-30')).toBe('30.08.2026')
   })
 
-  it('zero-pads single-digit months and days', () => {
+  it('zero-pads single-digit months and days in German', () => {
+    setLocale('de')
     expect(formatDate('2026-01-05')).toBe('05.01.2026')
+  })
+
+  it('formats an ISO date as a short date in English', () => {
+    expect(formatDate('2026-08-30')).toBe('08/30/2026')
   })
 })
 
 describe('formatKm', () => {
-  it('groups thousands with the de-DE separator', () => {
+  it('groups thousands with the German separator in German', () => {
+    setLocale('de')
     expect(formatKm(101400)).toBe('101.400')
   })
 
+  it('groups thousands with the English separator in English', () => {
+    expect(formatKm(101400)).toBe('101,400')
+  })
+
   it('leaves values below 1000 untouched', () => {
+    expect(formatKm(42)).toBe('42')
+    setLocale('de')
     expect(formatKm(42)).toBe('42')
   })
 })
 
 describe('deltaLabel', () => {
-  it('renders a positive delta with a leading plus', () => {
+  it('renders a positive delta with a leading plus in German', () => {
+    setLocale('de')
     expect(deltaLabel(17190)).toBe('+17.190')
   })
 
-  it('renders a negative delta with the signed de-DE format', () => {
+  it('renders a negative delta with the signed format in German', () => {
+    setLocale('de')
     expect(deltaLabel(-4210)).toBe('-4.210')
   })
 
+  it('renders a positive delta with a leading plus in English', () => {
+    expect(deltaLabel(17190)).toBe('+17,190')
+  })
+
+  it('renders a negative delta with the signed format in English', () => {
+    expect(deltaLabel(-4210)).toBe('-4,210')
+  })
+
   it('renders a zero delta without a sign', () => {
+    expect(deltaLabel(0)).toBe('0')
+    setLocale('de')
     expect(deltaLabel(0)).toBe('0')
   })
 })
@@ -65,6 +103,133 @@ describe('carLabel', () => {
   it('joins manufacturer and model with a space', () => {
     const label = carLabel({ id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' })
     expect(label).toBe('Volkswagen Golf')
+  })
+})
+
+describe('errorMessage', () => {
+  const apiError = (
+    code: string | null,
+    params: Record<string, number | string> | null = null,
+    fields: ValidationField[] = [],
+  ) =>
+    // The raw message must never reach the UI: only the translated code matters.
+    new ApiError('raw server detail that must not reach the UI', null, code, params, fields)
+
+  it('translates a network failure in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.network))).toBe(
+      'Could not reach the server. Please check your connection and try again.',
+    )
+  })
+
+  it('translates a network failure in German', () => {
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.network))).toBe(
+      'Der Server ist nicht erreichbar. Bitte prüfe deine Verbindung und versuche es erneut.',
+    )
+  })
+
+  it('translates a duplicate license conflict in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.duplicateLicense))).toBe(
+      'A car with this license already exists.',
+    )
+  })
+
+  it('translates a duplicate license conflict in German', () => {
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.duplicateLicense))).toBe(
+      'Ein Auto mit diesem Kennzeichen existiert bereits.',
+    )
+  })
+
+  it('translates sequence conflicts with the localized km value in English', () => {
+    expect(errorMessage(apiError(ApiErrorCode.sequenceSameDate, { km: 46000 }))).toBe(
+      'Odometer reading must be 46,000 km.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow, { km: 46000 }))).toBe(
+      'Odometer reading must be at least 46,000 km.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooHigh, { km: 46000 }))).toBe(
+      'Odometer reading must be at most 46,000 km.',
+    )
+  })
+
+  it('translates sequence conflicts with the localized km value in German', () => {
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.sequenceSameDate, { km: 46000 }))).toBe(
+      'Die Erfassung muss 46.000 km betragen.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow, { km: 46000 }))).toBe(
+      'Die Erfassung muss mindestens 46.000 km betragen.',
+    )
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooHigh, { km: 46000 }))).toBe(
+      'Die Erfassung darf höchstens 46.000 km betragen.',
+    )
+  })
+
+  it('falls back to the generic message when the sequence code misses its km', () => {
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow))).toBe('Something went wrong.')
+    setLocale('de')
+    expect(errorMessage(apiError(ApiErrorCode.sequenceTooLow))).toBe('Etwas ist schiefgelaufen.')
+  })
+
+  it('translates validation fields by field name and rule in English', () => {
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'value_error' }])),
+    ).toBe('License must be a valid German license (e.g. M-AB1234).')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'missing' }]))).toBe(
+      'All fields are required.',
+    )
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'manufacturer', type: 'missing' }])),
+    ).toBe('All fields are required.')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'date', type: 'missing' }]))).toBe(
+      'A date is required.',
+    )
+    expect(
+      errorMessage(
+        apiError(ApiErrorCode.validation, null, [{ key: 'odometer_reading', type: 'missing' }]),
+      ),
+    ).toBe('An odometer reading in km (>= 0) is required.')
+    expect(
+      errorMessage(
+        apiError(ApiErrorCode.validation, null, [{ key: 'mileage_per_year', type: 'missing' }]),
+      ),
+    ).toBe('An annual mileage cap in km/year (>= 0) is required.')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'unknown', type: 'missing' }]))).toBe(
+      'Something went wrong.',
+    )
+  })
+
+  it('translates validation fields in German', () => {
+    setLocale('de')
+    expect(
+      errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'license', type: 'value_error' }])),
+    ).toBe('Das Kennzeichen muss ein gültiges deutsches Kennzeichen sein (z. B. M-AB1234).')
+    expect(errorMessage(apiError(ApiErrorCode.validation, null, [{ key: 'date', type: 'missing' }]))).toBe(
+      'Ein Datum ist erforderlich.',
+    )
+  })
+
+  it('uses the localized generic message for a plain Error in English', () => {
+    expect(errorMessage(new Error('Could not load the garage.'))).toBe('Something went wrong.')
+    expect(errorMessage('unexpected')).toBe('Something went wrong.')
+    expect(errorMessage(null)).toBe('Something went wrong.')
+  })
+
+  it('uses the localized generic message for a plain Error in German', () => {
+    setLocale('de')
+    expect(errorMessage(new Error('Die Garage konnte nicht geladen werden.'))).toBe(
+      'Etwas ist schiefgelaufen.',
+    )
+    expect(errorMessage('unexpected')).toBe('Etwas ist schiefgelaufen.')
+    expect(errorMessage(null)).toBe('Etwas ist schiefgelaufen.')
+  })
+
+  it('uses the localized generic message for an unknown code', () => {
+    expect(errorMessage(apiError('some_new_code'))).toBe('Something went wrong.')
+    expect(errorMessage(apiError(null))).toBe('Something went wrong.')
+    setLocale('de')
+    expect(errorMessage(apiError('some_new_code'))).toBe('Etwas ist schiefgelaufen.')
   })
 })
 
@@ -128,22 +293,44 @@ describe('evaluationLabel', () => {
   it('renders a missing evaluation as a neutral dash', () => {
     expect(evaluationLabel(null)).toEqual({ text: '—', tone: 'none' })
     expect(evaluationLabel(undefined)).toEqual({ text: '—', tone: 'none' })
+    setLocale('de')
+    expect(evaluationLabel(null)).toEqual({ text: '—', tone: 'none' })
   })
 
-  it('renders a positive delta as an over label', () => {
+  it('renders a positive delta as an over label in English', () => {
     expect(evaluationLabel(evaluation(500))).toEqual({ text: '500 km over', tone: 'over' })
   })
 
-  it('formats a four-digit over label with the German thousand separator', () => {
-    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1.500 km over', tone: 'over' })
+  it('formats a four-digit over label with the English thousand separator', () => {
+    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1,500 km over', tone: 'over' })
   })
 
-  it('renders a negative delta as an under label', () => {
+  it('renders a negative delta as an under label in English', () => {
     expect(evaluationLabel(evaluation(-500))).toEqual({ text: '500 km under', tone: 'under' })
   })
 
-  it('renders a zero delta as an on-limit label', () => {
+  it('renders a zero delta as an on-limit label in English', () => {
     expect(evaluationLabel(evaluation(0))).toEqual({ text: 'On limit', tone: 'on-limit' })
+  })
+
+  it('renders a positive delta as an over label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(500))).toEqual({ text: '500 km über', tone: 'over' })
+  })
+
+  it('formats a four-digit over label with the German thousand separator', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(1500))).toEqual({ text: '1.500 km über', tone: 'over' })
+  })
+
+  it('renders a negative delta as an under label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(-500))).toEqual({ text: '500 km unter', tone: 'under' })
+  })
+
+  it('renders a zero delta as an on-limit label in German', () => {
+    setLocale('de')
+    expect(evaluationLabel(evaluation(0))).toEqual({ text: 'Am Limit', tone: 'on-limit' })
   })
 
   it('accepts a per-record Evaluation', () => {

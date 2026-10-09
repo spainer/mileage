@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 
 import { deltaLabel, evaluationLabel, formatDate, formatKm } from '../format'
+import { i18n } from '../i18n'
 import {
   currentReport,
   latestEntryForCar,
@@ -39,22 +40,24 @@ const editingRecord = ref<RecordRow | null>(null)
 const reportModalOpen = ref(false)
 const editingReport = ref<InsuranceReport | null>(null)
 
+const t = i18n.global.t
+
 const rightAligned = { class: { th: 'text-right', td: 'text-right' } }
 
-const mileageColumns = [
-  { accessorKey: 'date', header: 'Date' },
-  { accessorKey: 'odometerReading', header: 'Reading', meta: rightAligned },
-  { accessorKey: 'delta', header: 'Since last', meta: rightAligned },
-  { accessorKey: 'evaluation', header: 'Limit', meta: rightAligned },
+const mileageColumns = computed(() => [
+  { accessorKey: 'date', header: t('car.date') },
+  { accessorKey: 'odometerReading', header: t('car.reading'), meta: rightAligned },
+  { accessorKey: 'delta', header: t('car.sinceLast'), meta: rightAligned },
+  { accessorKey: 'evaluation', header: t('car.limit'), meta: rightAligned },
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
-]
+])
 
-const reportColumns = [
-  { accessorKey: 'date', header: 'Date' },
-  { accessorKey: 'odometerReading', header: 'Reading', meta: rightAligned },
-  { accessorKey: 'mileagePerYear', header: 'Cap / year', meta: rightAligned },
+const reportColumns = computed(() => [
+  { accessorKey: 'date', header: t('car.date') },
+  { accessorKey: 'odometerReading', header: t('car.reading'), meta: rightAligned },
+  { accessorKey: 'mileagePerYear', header: t('garage.capPerYear'), meta: rightAligned },
   { id: 'actions', header: '', meta: { class: { td: 'text-right' } } },
-]
+])
 
 function openAddRecord() {
   editingRecord.value = null
@@ -93,30 +96,30 @@ function openEditEntry(row: EntryRow) {
 }
 
 function pencilLabel(row: EntryRow): string {
-  return row.kind === 'record' ? 'Edit reading' : 'Edit report'
+  return row.kind === 'record' ? t('car.editReading') : t('car.editReport')
 }
 </script>
 
 <template>
   <UTabs
     :items="[
-      { label: 'Mileage', slot: 'mileage', icon: 'i-lucide-gauge' },
-      { label: 'Insurance', slot: 'insurance', icon: 'i-lucide-shield-check' },
+      { label: t('car.tabs.mileage'), slot: 'mileage', icon: 'i-lucide-gauge' },
+      { label: t('car.tabs.insurance'), slot: 'insurance', icon: 'i-lucide-shield-check' },
     ]"
   >
     <template #mileage>
       <div class="grid gap-3">
         <div class="flex items-center justify-between gap-2">
           <p v-if="latest" class="truncate text-sm text-muted">
-            Latest:
+            {{ t('car.latest') }}:
             <span class="font-medium text-foreground">
               {{ formatKm(latest.odometerReading) }} km
             </span>
-            on {{ formatDate(latest.date) }}
+            {{ t('car.latestOn', { date: formatDate(latest.date) }) }}
           </p>
-          <p v-else class="text-sm text-muted">No readings yet</p>
+          <p v-else class="text-sm text-muted">{{ t('car.noReadings') }}</p>
           <UButton size="sm" color="primary" icon="i-lucide-plus" @click="openAddRecord">
-            Add reading
+            {{ t('car.addReading') }}
           </UButton>
         </div>
 
@@ -133,7 +136,7 @@ function pencilLabel(row: EntryRow): string {
                 v-if="row.original.kind === 'report'"
                 class="block text-xs text-muted tabular-nums"
               >
-                {{ formatKm(row.original.mileagePerYear) }} km/year
+                {{ formatKm(row.original.mileagePerYear) }} {{ t('car.kmPerYear') }}
               </span>
             </template>
             <template #delta-cell="{ row }">
@@ -172,7 +175,7 @@ function pencilLabel(row: EntryRow): string {
             v-else
             class="rounded-lg border border-dashed py-8 text-center text-sm text-muted"
           >
-            No mileage readings yet.
+            {{ t('car.noMileage') }}
           </p>
         </div>
 
@@ -183,7 +186,7 @@ function pencilLabel(row: EntryRow): string {
                 <p class="font-medium tabular-nums">
                   {{ formatKm(row.odometerReading) }} km
                   <span v-if="row.kind === 'report'" class="font-normal text-muted">
-                    · {{ formatKm(row.mileagePerYear) }} km/year
+                    · {{ formatKm(row.mileagePerYear) }} {{ t('car.kmPerYear') }}
                   </span>
                 </p>
                 <p class="text-sm text-muted tabular-nums">
@@ -211,7 +214,7 @@ function pencilLabel(row: EntryRow): string {
             v-if="rows.length === 0"
             class="rounded-lg border border-dashed py-8 text-center text-sm text-muted"
           >
-            No mileage readings yet.
+            {{ t('car.noMileage') }}
           </p>
         </div>
       </div>
@@ -221,14 +224,14 @@ function pencilLabel(row: EntryRow): string {
       <div class="grid gap-3">
         <div class="flex items-center justify-between gap-2">
           <p class="truncate text-sm text-muted">
-            In force:
+            {{ t('car.inForce') }}:
             <span v-if="inForce" class="font-medium text-foreground">
-              {{ formatKm(inForce.mileagePerYear) }} km/year
+              {{ formatKm(inForce.mileagePerYear) }} {{ t('car.kmPerYear') }}
             </span>
-            <span v-else>no report yet</span>
+            <span v-else>{{ t('car.noReportYet') }}</span>
           </p>
           <UButton size="sm" color="primary" icon="i-lucide-plus" @click="openAddReport">
-            Add report
+            {{ t('car.addReport') }}
           </UButton>
         </div>
 
@@ -253,7 +256,7 @@ function pencilLabel(row: EntryRow): string {
                   color="success"
                   variant="subtle"
                 >
-                  In force
+                  {{ t('car.inForce') }}
                 </UBadge>
               </div>
             </template>
@@ -264,7 +267,7 @@ function pencilLabel(row: EntryRow): string {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit report"
+                  :aria-label="t('car.editReport')"
                   @click="openEditReport(row.original)"
                 />
               </div>
@@ -274,7 +277,7 @@ function pencilLabel(row: EntryRow): string {
             v-else
             class="rounded-lg border border-dashed py-8 text-center text-sm text-muted"
           >
-            No insurance reports yet.
+            {{ t('car.noReports') }}
           </p>
         </div>
 
@@ -283,18 +286,19 @@ function pencilLabel(row: EntryRow): string {
             <div class="flex items-center justify-between gap-2">
               <div class="min-w-0">
                 <p class="flex items-center gap-2 font-medium tabular-nums">
-                  {{ formatKm(row.mileagePerYear) }} km/year
+                  {{ formatKm(row.mileagePerYear) }} {{ t('car.kmPerYear') }}
                   <UBadge
                     v-if="inForce && row.id === inForce.id"
                     size="sm"
                     color="success"
                     variant="subtle"
                   >
-                    In force
+                    {{ t('car.inForce') }}
                   </UBadge>
                 </p>
                 <p class="text-sm text-muted tabular-nums">
-                  {{ formatDate(row.date) }} · at {{ formatKm(row.odometerReading) }} km
+                  {{ formatDate(row.date) }}
+                  · {{ t('car.atReading', { km: formatKm(row.odometerReading) }) }}
                 </p>
               </div>
               <div class="flex shrink-0">
@@ -303,7 +307,7 @@ function pencilLabel(row: EntryRow): string {
                   variant="ghost"
                   color="neutral"
                   icon="i-lucide-pencil"
-                  aria-label="Edit report"
+                  :aria-label="t('car.editReport')"
                   @click="openEditReport(row)"
                 />
               </div>
@@ -313,7 +317,7 @@ function pencilLabel(row: EntryRow): string {
             v-if="reports.length === 0"
             class="rounded-lg border border-dashed py-8 text-center text-sm text-muted"
           >
-            No insurance reports yet.
+            {{ t('car.noReports') }}
           </p>
         </div>
       </div>

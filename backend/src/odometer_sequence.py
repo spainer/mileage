@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
+from src.errors import (
+    ODOMETER_SEQUENCE_SAME_DATE,
+    ODOMETER_SEQUENCE_TOO_HIGH,
+    ODOMETER_SEQUENCE_TOO_LOW,
+)
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +43,15 @@ class Bounds:
             and self.upper is None
             and self.same_date_value is None
         )
+
+
+@dataclass(frozen=True)
+class SequenceViolation:
+    """A violated sequence rule with its machine-readable code and bound."""
+
+    code: str
+    km: int
+    message: str
 
 
 def compute_bounds(
@@ -73,8 +88,8 @@ def validate(
     proposed_date: date,
     proposed_value: int,
     exclude_id: int | None = None,
-) -> str | None:
-    """Return a human-readable message if ``proposed_value`` violates the rule.
+) -> SequenceViolation | None:
+    """Return the violated rule if ``proposed_value`` breaks the sequence.
 
     Returns ``None`` when the value is valid. The same-date entry always wins:
     if there is an entry dated ``proposed_date`` then ``proposed_value`` must
@@ -83,12 +98,24 @@ def validate(
     bounds = compute_bounds(entries, proposed_date, exclude_id)
     if bounds.same_date_value is not None:
         if proposed_value != bounds.same_date_value:
-            return f"Odometer reading must be {bounds.same_date_value:,} km."
+            return SequenceViolation(
+                code=ODOMETER_SEQUENCE_SAME_DATE,
+                km=bounds.same_date_value,
+                message=f"Odometer reading must be {bounds.same_date_value:,} km.",
+            )
         return None
     if bounds.lower is not None and proposed_value < bounds.lower:
-        return f"Odometer reading must be at least {bounds.lower:,} km."
+        return SequenceViolation(
+            code=ODOMETER_SEQUENCE_TOO_LOW,
+            km=bounds.lower,
+            message=f"Odometer reading must be at least {bounds.lower:,} km.",
+        )
     if bounds.upper is not None and proposed_value > bounds.upper:
-        return f"Odometer reading must be at most {bounds.upper:,} km."
+        return SequenceViolation(
+            code=ODOMETER_SEQUENCE_TOO_HIGH,
+            km=bounds.upper,
+            message=f"Odometer reading must be at most {bounds.upper:,} km.",
+        )
     return None
 
 

@@ -1,3 +1,6 @@
+import { i18n } from './i18n'
+import { formatKm } from './format'
+
 export interface OdometerEntry {
   id: number
   date: string
@@ -28,43 +31,45 @@ export function computeBounds(entries: OdometerEntry[], date: string): OdometerB
   return { lower, upper, sameDateValue }
 }
 
-export const formatNumber: (n: number) => string = (n) =>
-  new Intl.NumberFormat('de-DE').format(n)
-
 export function validate(
   entries: OdometerEntry[],
   date: string,
   odometerReading: number,
 ): string | null {
+  const t = i18n.global.t
   const bounds = computeBounds(entries, date)
   if (bounds.sameDateValue !== null) {
     if (odometerReading !== bounds.sameDateValue) {
-      return `Odometer reading must be ${formatNumber(bounds.sameDateValue)} km.`
+      return t('odometer.sameDate', { km: formatKm(bounds.sameDateValue) })
     }
     return null
   }
   if (bounds.lower !== null && odometerReading < bounds.lower) {
-    return `Odometer reading must be at least ${formatNumber(bounds.lower)} km.`
+    return t('odometer.atLeast', { km: formatKm(bounds.lower) })
   }
   if (bounds.upper !== null && odometerReading > bounds.upper) {
-    return `Odometer reading must be at most ${formatNumber(bounds.upper)} km.`
+    return t('odometer.atMost', { km: formatKm(bounds.upper) })
   }
   return null
 }
 
 export function boundsHint(entries: OdometerEntry[], date: string): string | null {
+  const t = i18n.global.t
   const bounds = computeBounds(entries, date)
   if (bounds.sameDateValue !== null) {
-    return `Must be ${formatNumber(bounds.sameDateValue)} km.`
+    return t('odometer.hintSameDate', { km: formatKm(bounds.sameDateValue) })
   }
   if (bounds.lower !== null && bounds.upper !== null) {
-    return `Must be between ${formatNumber(bounds.lower)} and ${formatNumber(bounds.upper)} km.`
+    return t('odometer.hintBetween', {
+      lower: formatKm(bounds.lower),
+      upper: formatKm(bounds.upper),
+    })
   }
   if (bounds.lower !== null) {
-    return `Must be at least ${formatNumber(bounds.lower)} km.`
+    return t('odometer.hintAtLeast', { km: formatKm(bounds.lower) })
   }
   if (bounds.upper !== null) {
-    return `Must be at most ${formatNumber(bounds.upper)} km.`
+    return t('odometer.hintAtMost', { km: formatKm(bounds.upper) })
   }
   return null
 }

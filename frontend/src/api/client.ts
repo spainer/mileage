@@ -9,13 +9,49 @@ import type {
 const BASE = '/api'
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const
 
+/**
+ * Machine-readable error codes. The backend ships the conflict codes
+ * (`duplicate_license`, `odometer_sequence_*`); 400 validation responses are
+ * recognized from their list `extra` (code `validation`). `network` is
+ * assigned client-side for transport-level failures.
+ */
+export const ApiErrorCode = {
+  network: 'network',
+  validation: 'validation',
+  duplicateLicense: 'duplicate_license',
+  sequenceSameDate: 'odometer_sequence_same_date',
+  sequenceTooLow: 'odometer_sequence_too_low',
+  sequenceTooHigh: 'odometer_sequence_too_high',
+} as const
+
+/** A failed validation field as reported by the backend (field name + rule). */
+export interface ValidationField {
+  key: string
+  type?: string
+}
+
 export class ApiError extends Error {
   readonly status: number | null
+  /** Machine-readable code for known errors; `null` for unknown/infrastructure errors. */
+  readonly code: string | null
+  /** Machine-readable values behind the error (e.g. the boundary `km`). */
+  readonly params: Record<string, number | string> | null
+  /** Failed validation fields with their machine-readable rule types. */
+  readonly fields: ValidationField[]
 
-  constructor(message: string, status: number | null) {
+  constructor(
+    message: string,
+    status: number | null,
+    code: string | null,
+    params: Record<string, number | string> | null,
+    fields: ValidationField[],
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.params = params
+    this.fields = fields
   }
 }
 
@@ -105,18 +141,70 @@ function messagesFrom(items: unknown): string[] {
     .filter((message) => message.length > 0)
 }
 
-function detailFrom(body: unknown, status: number): string {
-  if (body && typeof body === 'object') {
-    const detail = (body as { detail?: unknown }).detail
-    if (Array.isArray(detail)) {
-      const messages = messagesFrom(detail)
-      if (messages.length > 0) return messages.join('; ')
+interface ErrorDetails {
+  message: string
+  code: string | null
+  params: Record<string, number | string> | null
+  fields: ValidationField[]
+}
+
+function isParams(value: unknown): value is Record<string, number | string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  return Object.values(value).every((item) => typeof item === 'number' || typeof item === 'string')
+}
+
+function fieldsFrom(items: unknown): ValidationField[] {
+  if (!Array.isArray(items)) return []
+  const fields: ValidationField[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const { key, type } = item as { key?: unknown; type?: unknown }
+    if (typeof key !== 'string') continue
+    if (typeof type === 'string') {
+      fields.push({ key, type })
+    } else {
+      fields.push({ key })
     }
-    const messages = messagesFrom((body as { extra?: unknown }).extra)
-    if (messages.length > 0) return messages.join('; ')
-    if (typeof detail === 'string' && detail.length > 0) return detail
   }
-  return `Request failed with status ${status}`
+  return fields
+}
+
+function errorDetailsFrom(body: unknown, status: number): ErrorDetails {
+  const fallback = `Request failed with status ${status}`
+  if (typeof body !== 'object' || body === null) {
+    return { message: fallback, code: null, params: null, fields: [] }
+  }
+  const { detail, extra } = body as { detail?: unknown; extra?: unknown }
+
+  // 409 conflicts carry the machine data in `extra` as { code, params }; the
+  // human-readable `detail` is kept as the raw message.
+  if (typeof extra === 'object' && extra !== null && !Array.isArray(extra)) {
+    const machine = extra as { code?: unknown; params?: unknown }
+    return {
+      message: typeof detail === 'string' && detail.length > 0 ? detail : fallback,
+      code: typeof machine.code === 'string' ? machine.code : null,
+      params: isParams(machine.params) ? machine.params : null,
+      fields: [],
+    }
+  }
+
+  // Validation failures (400) carry one item per failed field in `extra`
+  // (or in the legacy `detail` array of 422 bodies).
+  const items = Array.isArray(extra) ? extra : Array.isArray(detail) ? detail : []
+  const fields = fieldsFrom(items)
+  const messages = messagesFrom(items)
+  const message =
+    messages.length > 0
+      ? messages.join('; ')
+      : typeof detail === 'string' && detail.length > 0
+        ? detail
+        : fallback
+  return {
+    message,
+    code: fields.length > 0 ? ApiErrorCode.validation : null,
+    params: null,
+    fields,
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -124,7 +212,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE}${path}`, init)
   } catch {
-    throw new ApiError('Could not reach the server.', null)
+    throw new ApiError('Could not reach the server.', null, ApiErrorCode.network, null, [])
   }
 
   if (!response.ok) {
@@ -134,7 +222,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       body = null
     }
-    throw new ApiError(detailFrom(body, response.status), response.status)
+    const details = errorDetailsFrom(body, response.status)
+    throw new ApiError(details.message, response.status, details.code, details.params, details.fields)
   }
 
   if (response.status === 204) {

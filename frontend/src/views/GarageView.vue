@@ -4,8 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 
 import CarFormModal from '../components/CarFormModal.vue'
 import CarSlideover from '../components/CarSlideover.vue'
+import LanguageSelector from '../components/LanguageSelector.vue'
 import LicensePlate from '../components/LicensePlate.vue'
-import { carLabel, evaluationLabel, formatDate, formatKm } from '../format'
+import { carLabel, evaluationLabel, errorMessage, formatDate, formatKm } from '../format'
+import { i18n } from '../i18n'
 import { evaluationToneClasses, theme } from '../theme'
 import {
   carById,
@@ -20,6 +22,8 @@ import {
   reportsForCar,
 } from '../state'
 import type { Car } from '../types'
+
+const t = i18n.global.t
 
 const route = useRoute()
 const router = useRouter()
@@ -88,9 +92,12 @@ function onSlideoverClose() {
 
 <template>
   <div class="mx-auto h-full w-full max-w-5xl overflow-y-auto p-4 lg:p-8">
-    <header class="mb-6">
-      <h1 class="text-2xl font-semibold tracking-tight">Garage</h1>
-      <p class="text-sm text-muted">Every car at a glance.</p>
+    <header class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ t('garage.heading') }}</h1>
+        <p class="text-sm text-muted">{{ t('garage.subtitle') }}</p>
+      </div>
+      <LanguageSelector class="shrink-0" />
     </header>
 
     <USkeleton v-if="loading" class="h-32" />
@@ -99,10 +106,10 @@ function onSlideoverClose() {
       v-else-if="error"
       color="error"
       variant="solid"
-      title="Could not load the garage"
-      :description="error"
+      :title="t('garage.loadFailedTitle')"
+      :description="errorMessage(error)"
       :actions="[
-        { label: 'Retry', color: 'error', variant: 'solid', size: 'sm', onClick: retry },
+        { label: t('garage.retry'), color: 'error', variant: 'solid', size: 'sm', onClick: retry },
       ]"
     />
 
@@ -124,7 +131,7 @@ function onSlideoverClose() {
 
           <dl class="mt-4 grid grid-cols-2 gap-2 text-sm">
             <div class="rounded-lg p-2" :class="theme.statTile">
-              <dt class="text-xs text-muted">Latest</dt>
+              <dt class="text-xs text-muted">{{ t('garage.latest') }}</dt>
               <dd class="font-medium tabular-nums">
                 <template v-if="latest">
                   {{ formatKm(latest.odometerReading) }} km
@@ -135,14 +142,14 @@ function onSlideoverClose() {
                     v-if="latest.kind === 'report'"
                     class="block text-xs font-normal text-muted"
                   >
-                    Cap reset
+                    {{ t('garage.capReset') }}
                   </span>
                 </template>
                 <span v-else class="text-muted">—</span>
               </dd>
             </div>
             <div class="rounded-lg p-2" :class="theme.statTile">
-              <dt class="text-xs text-muted">Cap / year</dt>
+              <dt class="text-xs text-muted">{{ t('garage.capPerYear') }}</dt>
               <dd class="font-medium tabular-nums">
                 <template v-if="cap">
                   {{ formatKm(cap.mileagePerYear) }}
@@ -161,8 +168,7 @@ function onSlideoverClose() {
           </dl>
 
           <p class="mt-3 text-xs text-muted">
-            {{ recordCount }} reading{{ recordCount === 1 ? '' : 's' }} ·
-            {{ reportCount }} report{{ reportCount === 1 ? '' : 's' }}
+            {{ t('garage.readings', recordCount) }} · {{ t('garage.reports', reportCount) }}
           </p>
         </div>
 
@@ -172,7 +178,7 @@ function onSlideoverClose() {
           :class="theme.addTile"
           @click="openAddCar"
         >
-          + Add car
+          {{ t('garage.addCar') }}
         </button>
       </div>
     </template>

@@ -2,7 +2,8 @@
 import { reactive, ref, watch } from 'vue'
 
 import { useConfirm } from '../composables/useConfirm'
-import { carLabel, isValidLicense, normalizeLicense } from '../format'
+import { carLabel, errorMessage, isValidLicense, normalizeLicense } from '../format'
+import { i18n } from '../i18n'
 import { createCar, deleteCar, updateCar } from '../state'
 import type { Car } from '../types'
 
@@ -24,6 +25,8 @@ const saving = ref(false)
 const deleting = ref(false)
 
 const { confirm } = useConfirm()
+
+const t = i18n.global.t
 
 watch(
   () => props.open,
@@ -54,7 +57,7 @@ watch(
     }
     const normalized = normalizeLicense(license)
     if (!isValidLicense(normalized)) {
-      licenseError.value = 'License must be a valid German license (e.g. M-AB1234).'
+      licenseError.value = t('carForm.licenseInvalid')
     } else {
       licenseError.value = undefined
     }
@@ -63,10 +66,6 @@ watch(
 
 function close() {
   emit('update:open', false)
-}
-
-function errorMessage(err: unknown) {
-  return err instanceof Error ? err.message : 'Something went wrong.'
 }
 
 function onOpenChange(value: boolean) {
@@ -81,11 +80,11 @@ function save() {
   const model = form.model.trim()
   const license = normalizeLicense(form.license)
   if (!manufacturer || !model || !license) {
-    error.value = 'All fields are required.'
+    error.value = t('carForm.allRequired')
     return
   }
   if (!isValidLicense(license)) {
-    error.value = 'License must be a valid German license (e.g. M-AB1234).'
+    error.value = t('carForm.licenseInvalid')
     return
   }
   error.value = ''
@@ -109,9 +108,9 @@ async function remove() {
   const car = props.car
   if (!car || deleting.value) return
   const confirmed = await confirm({
-    title: 'Delete car',
-    message: `This deletes ${carLabel(car)} together with all of its Mileage Records and Insurance Reports.`,
-    confirmLabel: 'Delete',
+    title: t('carForm.deleteTitle'),
+    message: t('carForm.deleteMessage', { car: carLabel(car) }),
+    confirmLabel: t('form.delete'),
   })
   if (!confirmed) return
   deleting.value = true
@@ -131,7 +130,7 @@ async function remove() {
 <template>
   <UModal
     :open="open"
-    :title="car ? 'Edit car' : 'Add car'"
+    :title="car ? t('car.editCar') : t('carForm.titleAdd')"
     @update:open="onOpenChange"
   >
     <template #body>
@@ -139,13 +138,13 @@ async function remove() {
         {{ error }}
       </div>
       <form class="grid gap-4" @submit.prevent="save">
-        <UFormField label="Manufacturer">
+        <UFormField :label="t('carForm.manufacturer')">
           <UInput v-model="form.manufacturer" placeholder="Volkswagen" />
         </UFormField>
-        <UFormField label="Model">
+        <UFormField :label="t('carForm.model')">
           <UInput v-model="form.model" placeholder="Golf" />
         </UFormField>
-        <UFormField label="License" :error="licenseError">
+        <UFormField :label="t('carForm.license')" :error="licenseError">
           <UInput v-model="form.license" placeholder="M-AB 1234" class="font-mono" />
         </UFormField>
       </form>
@@ -160,14 +159,14 @@ async function remove() {
           :disabled="saving || deleting"
           @click="remove"
         >
-          Delete
+          {{ t('form.delete') }}
         </UButton>
         <span class="grow" />
         <UButton color="neutral" variant="ghost" @click="close">
-          Cancel
+          {{ t('form.cancel') }}
         </UButton>
         <UButton color="primary" :disabled="saving || deleting" @click="save">
-          {{ car ? 'Save' : 'Add car' }}
+          {{ car ? t('form.save') : t('carForm.titleAdd') }}
         </UButton>
       </div>
     </template>

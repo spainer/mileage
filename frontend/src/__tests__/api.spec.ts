@@ -12,6 +12,12 @@ async function expectApiError(promise: Promise<unknown>, status: number | null, 
   expect((error as ApiError).message).toBe(message)
 }
 
+async function captureApiError(promise: Promise<unknown>): Promise<ApiError> {
+  const error = await promise.catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(ApiError)
+  return error as ApiError
+}
+
 function lastCall() {
   const calls = fetchMock.mock.calls
   const [url, init] = calls[calls.length - 1]
@@ -361,5 +367,104 @@ describe('error translation', () => {
     )
 
     await expectApiError(api.listCars(), 500, 'Request failed with status 500')
+  })
+})
+
+describe('machine-readable error codes', () => {
+  it('ships the duplicate_license code without params for a 409 conflict', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          status_code: 409,
+          detail: 'A car with this license already exists',
+          extra: { code: 'duplicate_license' },
+        },
+        409,
+      ),
+    )
+
+    const error = await captureApiError(
+      api.createCar({ manufacturer: 'VW', model: 'Golf', license: 'M-AB1234' }),
+    )
+
+    expect(error.status).toBe(409)
+    expect(error.message).toBe('A car with this license already exists')
+    expect(error.code).toBe('duplicate_license')
+    expect(error.params).toBeNull()
+    expect(error.fields).toEqual([])
+  })
+
+  it('ships the sequence code and the machine km param for a 409 conflict', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          status_code: 409,
+          detail: 'Odometer reading must be at most 46,000 km.',
+          extra: { code: 'odometer_sequence_too_high', params: { km: 46000 } },
+        },
+        409,
+      ),
+    )
+
+    const error = await captureApiError(
+      api.createMileageRecord(7, { date: '2026-01-15', odometerReading: 46001 }),
+    )
+
+    expect(error.status).toBe(409)
+    expect(error.code).toBe('odometer_sequence_too_high')
+    expect(error.params).toEqual({ km: 46000 })
+    expect(error.fields).toEqual([])
+  })
+
+  it('ships the validation code with machine-readable fields for a 400 body', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          status_code: 400,
+          detail: 'Validation failed for POST /api/cars',
+          extra: [
+            {
+              message: 'license must be a German license plate: (e.g. M-AB1234)',
+              key: 'license',
+              type: 'value_error',
+              source: 'body',
+            },
+          ],
+        },
+        400,
+      ),
+    )
+
+    const error = await captureApiError(
+      api.createCar({ manufacturer: 'VW', model: 'Golf', license: 'nope' }),
+    )
+
+    expect(error.code).toBe('validation')
+    expect(error.params).toBeNull()
+    expect(error.fields).toEqual([{ key: 'license', type: 'value_error' }])
+  })
+
+  it('keeps the code null for an unknown server error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status_code: 500, detail: 'An internal error occurred' }, 500),
+    )
+
+    const error = await captureApiError(api.listCars())
+
+    expect(error.status).toBe(500)
+    expect(error.code).toBeNull()
+    expect(error.params).toBeNull()
+    expect(error.fields).toEqual([])
+  })
+
+  it('marks a network failure with the network code and no status', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    const error = await captureApiError(api.listCars())
+
+    expect(error.status).toBeNull()
+    expect(error.code).toBe('network')
+    expect(error.params).toBeNull()
+    expect(error.fields).toEqual([])
   })
 })
