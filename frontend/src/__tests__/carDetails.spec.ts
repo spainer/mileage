@@ -336,3 +336,217 @@ describe('CarDetails empty states', () => {
     expect(insurance.text()).toContain('Noch keine Berichte.')
   })
 })
+
+describe('CarDetails odometer chart', () => {
+  // Fixed dates so the oldest-first order cannot flip with the test run
+  // date; the shared fixture's report date drifts with `Date.now()`.
+  const OLD_DATE = '2025-09-01'
+
+  function seedHistory(): void {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, evaluation: null },
+    ]
+    insuranceReports.value = [
+      {
+        id: 21,
+        carId: 1,
+        date: OLD_DATE,
+        odometerReading: REPORT_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      },
+    ]
+  }
+
+  function chartSection(wrapper: VueWrapper): Element {
+    const section = wrapper.element.children[0]
+    if (!section) throw new Error('CarDetails renders no chart section')
+    return section
+  }
+
+  it('renders the chart above the tabs, outside the tab contents', () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    const [section, tabs] = wrapper.element.children
+
+    const svg = section.querySelector('svg')
+    expect(svg).not.toBeNull()
+    expect(svg?.getAttribute('aria-label')).toBe('Odometer readings over time')
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Odometer history')
+
+    expect(tabs.classList.contains('utabs-stub')).toBe(true)
+    expect(tabs.querySelectorAll('svg')).toHaveLength(0)
+  })
+
+  it('renders one marker per date, oldest first, with time-proportional spacing', () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    const circles = wrapper.findAll('circle')
+    expect(circles).toHaveLength(3)
+
+    const cxs = circles.map((circle) => Number(circle.attributes('cx')))
+    const cys = circles.map((circle) => Number(circle.attributes('cy')))
+
+    // Oldest first along the x axis, from the left plot edge to the right one.
+    expect(cxs[0]).toBeLessThan(cxs[1])
+    expect(cxs[1]).toBeLessThan(cxs[2])
+
+    // Horizontal spacing is proportional to elapsed time, not to the index.
+    const t0 = Date.parse(OLD_DATE)
+    const t1 = Date.parse(LATEST_DATE)
+    expect((cxs[1] - cxs[0]) / (cxs[2] - cxs[0])).toBeCloseTo(
+      (Date.parse(MIDDLE_DATE) - t0) / (t1 - t0),
+      3,
+    )
+
+    // Higher readings sit higher on the chart.
+    expect(cys[0]).toBeGreaterThan(cys[1])
+    expect(cys[1]).toBeGreaterThan(cys[2])
+  })
+
+  it('renders flat readings on one horizontal line inside the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: 5_000, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: 5_000, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    const cys = wrapper.findAll('circle').map((circle) => Number(circle.attributes('cy')))
+    expect(cys).toHaveLength(2)
+    expect(cys[0]).toBeCloseTo(cys[1], 5)
+    // A span-less domain is padded around its value, so the line is
+    // vertically centred in the plot rather than on its edge.
+    expect(cys[0]).toBeCloseTo(112, 5)
+  })
+
+  it('collapses a same-date record and report into one marker', () => {
+    seedHistory()
+    insuranceReports.value.push({
+      id: 22,
+      carId: 1,
+      date: LATEST_DATE,
+      odometerReading: LATEST_READING,
+      mileagePerYear: CAP_PER_YEAR,
+    })
+    const wrapper = mountDetails()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+  })
+
+  it('renders records-only and reports-only histories', () => {
+    seedHistory()
+    insuranceReports.value = []
+    expect(mountDetails().findAll('circle')).toHaveLength(2)
+
+    mileageRecords.value = []
+    insuranceReports.value = [
+      {
+        id: 21,
+        carId: 1,
+        date: OLD_DATE,
+        odometerReading: REPORT_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      },
+    ]
+    expect(mountDetails().findAll('circle')).toHaveLength(1)
+  })
+
+  it('centers a single-date history in the middle of the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const circle = mountDetails().find('circle')
+    expect(circle.exists()).toBe(true)
+    // 640 px fallback width: plot runs from 56 to 624.
+    expect(Number(circle.attributes('cx'))).toBeCloseTo(340, 5)
+  })
+
+  it('renders all-zero readings inside the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: 0, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: 0, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const circles = mountDetails().findAll('circle')
+    expect(circles).toHaveLength(2)
+    const cys = circles.map((circle) => Number(circle.attributes('cy')))
+    expect(cys[0]).toBeCloseTo(cys[1], 5)
+    expect(cys[0]).toBeCloseTo(112, 5)
+    const cxs = circles.map((circle) => Number(circle.attributes('cx')))
+    expect(cxs[0]).toBeLessThan(cxs[1])
+  })
+
+  it('shows the English empty state when there are no readings of either kind', () => {
+    mileageRecords.value = []
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    const section = chartSection(wrapper)
+    expect(section.querySelector('svg')).toBeNull()
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Odometer history')
+    expect(section.textContent).toContain('No odometer readings yet.')
+  })
+
+  it('shows the German empty state after a live locale switch', async () => {
+    mileageRecords.value = []
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    setLocale('de')
+    await nextTick()
+    const section = chartSection(wrapper)
+    expect(section.querySelector('svg')).toBeNull()
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Kilometerstandsverlauf')
+    expect(section.textContent).toContain('Noch keine Kilometerstände.')
+  })
+
+  it('updates live when the histories change, without remounting', async () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+
+    mileageRecords.value.push({
+      id: 13,
+      carId: 1,
+      date: '2026-08-15',
+      odometerReading: 43_000,
+      evaluation: null,
+    })
+    await nextTick()
+    expect(wrapper.findAll('circle')).toHaveLength(4)
+
+    insuranceReports.value = []
+    await nextTick()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+  })
+
+  it('ignores readings of other cars', () => {
+    seedHistory()
+    mileageRecords.value.push({
+      id: 31,
+      carId: 2,
+      date: '2026-09-15',
+      odometerReading: 60_000,
+      evaluation: null,
+    })
+    expect(mountDetails().findAll('circle')).toHaveLength(3)
+  })
+
+  it('translates the chart title, aria label, and date labels', async () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    setLocale('de')
+    await nextTick()
+
+    const section = chartSection(wrapper)
+    const svg = section.querySelector('svg')
+    expect(svg?.getAttribute('aria-label')).toBe('Kilometerstandsverlauf')
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Kilometerstandsverlauf')
+
+    // The span ends are always labelled; the middle reading sits 29 days
+    // from the last one, so its date label may be thinned away at this
+    // width. The labelled dates are localised to German.
+    const texts = wrapper.findAll('svg text').map((text) => text.text())
+    for (const date of [OLD_DATE, LATEST_DATE]) {
+      expect(texts).toContain(formatDate(date))
+    }
+  })
+})

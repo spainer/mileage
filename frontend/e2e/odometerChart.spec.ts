@@ -1,0 +1,302 @@
+import { expect, test, type Page } from '@playwright/test'
+
+import { formatDate, formatKm } from '../src/format'
+
+const BACKEND = 'http://localhost:8000/api'
+
+async function request(path: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(`${BACKEND}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+  if (!response.ok) {
+    throw new Error(`API ${path} failed: ${response.status} ${await response.text()}`)
+  }
+  if (response.status === 204) return null
+  return response.json()
+}
+
+function daysFromNow(days: number): string {
+  const date = new Date(Date.now() + days * 86_400_000)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+const oldestDate = daysFromNow(-400)
+const secondDate = daysFromNow(-120)
+const thirdDate = daysFromNow(-60)
+const latestDate = daysFromNow(-1)
+const sameDateDay = daysFromNow(-30)
+
+const OLDEST_READING = 84_000
+const SECOND_READING = 84_210
+const THIRD_READING = 93_400
+const LATEST_READING = 101_400
+const NEW_READING = 110_000
+
+const CHART_LABEL = 'Odometer readings over time'
+
+let carId = 0
+let emptyCarId = 0
+let sameDateCarId = 0
+
+async function wipeCars(): Promise<void> {
+  const cars = (await request('/cars')) as Array<{ id: number }>
+  for (const car of cars) {
+    await request(`/cars/${car.id}`, { method: 'DELETE' })
+  }
+}
+
+async function seed(): Promise<void> {
+  // A report plus three records, one per distinct date.
+  const car = (await request('/cars', {
+    method: 'POST',
+    body: JSON.stringify({ manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }),
+  })) as { id: number }
+  carId = car.id
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: secondDate, odometer_reading: SECOND_READING }),
+  })
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: thirdDate, odometer_reading: THIRD_READING }),
+  })
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: latestDate, odometer_reading: LATEST_READING }),
+  })
+  await request(`/cars/${carId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({ date: oldestDate, odometer_reading: OLDEST_READING, mileage_per_year: 12_000 }),
+  })
+
+  // No readings of either kind.
+  const empty = (await request('/cars', {
+    method: 'POST',
+    body: JSON.stringify({ manufacturer: 'Audi', model: 'A3', license: 'M-GC4821' }),
+  })) as { id: number }
+  emptyCarId = empty.id
+
+  // A record and a report on the same date with the same reading.
+  const sameDate = (await request('/cars', {
+    method: 'POST',
+    body: JSON.stringify({ manufacturer: 'BMW', model: '320', license: 'M-CD5777' }),
+  })) as { id: number }
+  sameDateCarId = sameDate.id
+  await request(`/cars/${sameDateCarId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: sameDateDay, odometer_reading: 50_000 }),
+  })
+  await request(`/cars/${sameDateCarId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({ date: sameDateDay, odometer_reading: 50_000, mileage_per_year: 10_000 }),
+  })
+}
+
+async function openSlideover(page: Page, license: string) {
+  await page.locator('[role="button"]', { hasText: license }).click()
+  return page.getByRole('dialog').filter({ hasText: license })
+}
+
+interface ChartGeometry {
+  width: number
+  containerWidth: number
+  /** Marker x positions in DOM order (oldest first). */
+  circles: number[]
+  /** x of the series path's endpoint; -1 when the series has no line. */
+  pathEndX: number
+  /** Line segments of the series path. */
+  segments: number
+  /** Gridline labels, left of the plot. */
+  yLabels: string[]
+  /** Date labels, below the plot. */
+  xLabels: string[]
+}
+
+/**
+ * Measures the running chart. The rendered width is read against the
+ * container's; the marker positions, the series endpoint, and the axis
+ * labels are separated by their positions (y labels sit left of the plot,
+ * x labels below it). Waits until the responsive width has settled, because
+ * the chart renders at a fallback width before its observer fires.
+ */
+async function chartGeometry(page: Page): Promise<ChartGeometry> {
+  const pending = await page.waitForFunction(
+    (label: string) => {
+      const dialog = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
+      const svg = dialog?.querySelector(`svg[aria-label="${label}"]`) as SVGSVGElement | null
+      if (!svg) return null
+      const width = Number(svg.getAttribute('width'))
+      const containerWidth = svg.parentElement ? svg.parentElement.clientWidth : -1
+      if (width !== containerWidth) return null
+      const circles = Array.from(svg.querySelectorAll('circle')).map(
+        (circle) => Number(circle.getAttribute('cx')),
+      )
+      const tokens = (svg.querySelector('path')?.getAttribute('d') ?? '').trim().split(' ')
+      const pathEndX = tokens.length >= 2 ? Number(tokens[tokens.length - 2]) : -1
+      const segments = tokens.filter((token) => token === 'L').length
+      const texts = Array.from(svg.querySelectorAll('text'))
+      return {
+        width,
+        containerWidth,
+        circles,
+        pathEndX,
+        segments,
+        yLabels: texts
+          .filter((text) => Number(text.getAttribute('x')) < 56)
+          .map((text) => text.textContent ?? ''),
+        xLabels: texts
+          .filter((text) => Number(text.getAttribute('y')) > 208)
+          .map((text) => text.textContent ?? ''),
+      }
+    },
+    CHART_LABEL,
+    { timeout: 5000 },
+  )
+  const geometry = await pending.jsonValue()
+  if (!geometry) throw new Error('the odometer chart did not appear')
+  return geometry
+}
+
+test.beforeEach(async () => {
+  await wipeCars()
+  await seed()
+})
+
+test.afterEach(async () => {
+  await wipeCars()
+})
+
+test('shows the combined history above the tabs as a chart fitted to the readings', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+
+  await expect(dialog.getByRole('heading', { name: 'Odometer history' })).toBeVisible()
+  await expect(dialog.locator(`svg[aria-label="${CHART_LABEL}"]`)).toBeVisible()
+
+  const geometry = await chartGeometry(page)
+
+  // The chart fills its container.
+  expect(geometry.width).toBe(geometry.containerWidth)
+
+  // One marker per distinct date, from the left plot edge to the right one.
+  expect(geometry.circles).toHaveLength(4)
+  expect(geometry.circles[0]).toBeCloseTo(56, 1)
+  expect(geometry.circles[3]).toBeCloseTo(geometry.width - 16, 1)
+
+  // Horizontal spacing is proportional to elapsed time, not to the index.
+  const t0 = Date.parse(oldestDate)
+  const t1 = Date.parse(latestDate)
+  const expectedRatio = (Date.parse(secondDate) - t0) / (t1 - t0)
+  expect(
+    (geometry.circles[1] - geometry.circles[0]) / (geometry.circles[3] - geometry.circles[0]),
+  ).toBeCloseTo(expectedRatio, 2)
+
+  // The series connects the markers and stops at the latest reading.
+  expect(geometry.segments).toBe(geometry.circles.length - 1)
+  expect(geometry.pathEndX).toBeCloseTo(geometry.circles[geometry.circles.length - 1], 1)
+
+  // The vertical axis is fitted to the readings, never forced to zero.
+  const yValues = geometry.yLabels.map((label) => Number(label.replace(/[^\d]/g, '')))
+  expect(yValues.length).toBeGreaterThan(0)
+  expect(yValues.every((value) => value > 0)).toBe(true)
+  expect(Math.min(...yValues)).toBeLessThan(LATEST_READING)
+  expect(geometry.yLabels).toContain(formatKm(95_000))
+
+  // The dated ends of the history are labelled.
+  expect(geometry.xLabels).toContain(formatDate(oldestDate))
+  expect(geometry.xLabels).toContain(formatDate(latestDate))
+
+  // The chart sits above the tabs, outside the tab contents.
+  const followsTablist = await page.evaluate((label: string) => {
+    const dialog = document.querySelector('[role="dialog"]')
+    const chart = dialog?.querySelector(`svg[aria-label="${label}"]`)
+    const tablist = dialog?.querySelector('[role="tablist"]')
+    if (!chart || !tablist) throw new Error('chart or tablist not found')
+    return Boolean(chart.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING)
+  }, CHART_LABEL)
+  expect(followsTablist).toBe(true)
+  expect(await dialog.locator(`[role="tabpanel"] svg[aria-label="${CHART_LABEL}"]`).count()).toBe(0)
+})
+
+test('fits the slideover on a phone screen and thins the date labels', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+
+  const phone = await chartGeometry(page)
+  expect(phone.circles).toHaveLength(4)
+  expect(phone.width).toBeGreaterThan(0)
+  expect(phone.width).toBeLessThan(375)
+
+  // No horizontal overflow: the chart fits the viewport.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(0)
+
+  // A wider panel renders a wider chart with more date labels.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  const desktop = await chartGeometry(page)
+  expect(desktop.width).toBeGreaterThan(phone.width)
+  expect(desktop.xLabels.length).toBeGreaterThan(phone.xLabels.length)
+  expect(phone.xLabels.length).toBeGreaterThanOrEqual(2)
+})
+
+test('updates the chart live after a reading is added, without reopening the slideover', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+
+  const before = await chartGeometry(page)
+  expect(before.circles).toHaveLength(4)
+
+  await dialog.getByRole('button', { name: 'Add reading' }).click()
+  const recordModal = page.getByRole('dialog', { name: 'Add reading' })
+  await expect(recordModal).toBeVisible()
+  await recordModal.getByLabel('Date').fill(daysFromNow(0))
+  await recordModal.getByLabel('Odometer reading (km)').fill(String(NEW_READING))
+  await recordModal.getByRole('button', { name: 'Add reading' }).click()
+  await expect(recordModal).toBeHidden()
+
+  const after = await chartGeometry(page)
+  expect(after.circles).toHaveLength(5)
+  expect(after.circles[4]).toBeCloseTo(after.width - 16, 1)
+  expect(after.xLabels).toContain(formatDate(daysFromNow(0)))
+})
+
+test('collapses a same-date record and report into one marker', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - CD 5777')
+  await expect(dialog).toBeVisible()
+
+  const geometry = await chartGeometry(page)
+  expect(geometry.circles).toHaveLength(1)
+  // A single date is centred in the plot, and the series has no line.
+  expect(geometry.circles[0]).toBeCloseTo((56 + geometry.width - 16) / 2, 1)
+  expect(geometry.segments).toBe(0)
+  expect(geometry.pathEndX).toBeCloseTo(geometry.circles[0], 1)
+})
+
+test('shows the empty state for a car without readings of either kind', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - GC 4821')
+  await expect(dialog).toBeVisible()
+
+  await expect(dialog.getByRole('heading', { name: 'Odometer history' })).toBeVisible()
+  await expect(dialog.getByText('No odometer readings yet.')).toBeVisible()
+  expect(await dialog.locator(`svg[aria-label="${CHART_LABEL}"]`).count()).toBe(0)
+})

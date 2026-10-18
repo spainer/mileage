@@ -28,6 +28,11 @@ export const en = {
       mileage: 'Mileage',
       insurance: 'Insurance',
     },
+    chart: {
+      title: 'Odometer history',
+      empty: 'No odometer readings yet.',
+      aria: 'Odometer readings over time',
+    },
     latest: 'Latest',
     latestOn: 'on {date}',
     noReadings: 'No readings yet',
@@ -130,6 +135,11 @@ export const de: Messages = {
     tabs: {
       mileage: 'Erfassungen',
       insurance: 'Versicherung',
+    },
+    chart: {
+      title: 'Kilometerstandsverlauf',
+      empty: 'Noch keine Kilometerstände.',
+      aria: 'Kilometerstandsverlauf',
     },
     latest: 'Letzter Stand',
     latestOn: 'am {date}',
