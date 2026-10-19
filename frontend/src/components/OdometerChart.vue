@@ -7,6 +7,7 @@ import {
   CHART_FALLBACK_WIDTH,
   computeChartLayout,
   type ChartPoint,
+  type TheoreticalSeries,
 } from '../odometerChart'
 
 const props = defineProps<{
@@ -16,6 +17,12 @@ const props = defineProps<{
    * needs at least one point, so an empty array here is a bug.
    */
   points: ChartPoint[]
+  /**
+   * The Theoretical Limit series for the same points, or `null` when the
+   * Car has no Insurance Report: then the actual history renders alone,
+   * with the localized hint to add a report.
+   */
+  theoretical: TheoreticalSeries | null
 }>()
 
 const t = i18n.global.t
@@ -47,18 +54,51 @@ onBeforeUnmount(() => {
   observer = null
 })
 
-const layout = computed(() => computeChartLayout(props.points, width.value))
+// The fitted domain also covers the Theoretical Limit values, so the limit
+// and the outgoing reset endpoints render inside the plot.
+const layout = computed(() =>
+  computeChartLayout(props.points, width.value, props.theoretical?.axisValues ?? []),
+)
 
-// The series path. Consolidated points always have distinct dates, but the
-// guard stays explicit: line segments only connect distinct dates.
-const path = computed(() =>
-  props.points
-    .map((point, index) => {
-      const previous = props.points[index - 1]
-      const command = previous === undefined || previous.date === point.date ? 'M' : 'L'
-      return `${command} ${layout.value.x(point.date)} ${layout.value.y(point.odometerReading)}`
+/**
+ * The SVG path of a series over the chart's points: a move at the first
+ * value, a line segment through the rest. A `null` value breaks the series:
+ * the sub-path before it is closed, and the next value starts a new one.
+ */
+function seriesPath(entries: Array<{ date: string; value: number | null }>): string {
+  let open = false
+  return entries
+    .map((entry) => {
+      if (entry.value === null) {
+        open = false
+        return null
+      }
+      const command = open ? 'L' : 'M'
+      open = true
+      return `${command} ${layout.value.x(entry.date)} ${layout.value.y(entry.value)}`
     })
-    .join(' '),
+    .filter((segment): segment is string => segment !== null)
+    .join(' ')
+}
+
+// The actual series connects every reading; consolidated points always have
+// distinct dates, so the segments run through all of them.
+const path = computed(() =>
+  seriesPath(props.points.map((point) => ({ date: point.date, value: point.odometerReading }))),
+)
+
+// The theoretical path runs only where a limit exists: the values before the
+// first Insurance Report are null, so the path starts at the first report
+// date.
+const theoreticalPath = computed(() =>
+  props.theoretical
+    ? seriesPath(
+        props.points.map((point, index) => ({
+          date: point.date,
+          value: props.theoretical!.effective[index] ?? null,
+        })),
+      )
+    : '',
 )
 
 // The first and last labelled dates sit on the plot edges, so they are
@@ -79,6 +119,20 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
     below its content) and clips it to the panel.
   -->
   <div ref="container" class="w-full overflow-hidden">
+    <!--
+      The legend identifies the two series. Its swatches are spans, not
+      svgs, so the chart stays the section's only svg element.
+    -->
+    <div v-if="theoretical" class="flex items-center gap-4 px-2 pb-2">
+      <span class="flex items-center gap-1.5 text-xs text-muted">
+        <span class="w-4 rounded-full bg-primary" style="height: 2px"></span>
+        {{ t('car.chart.actual') }}
+      </span>
+      <span class="flex items-center gap-1.5 text-xs text-muted">
+        <span class="w-4 border-t-2 border-dashed border-warning"></span>
+        {{ t('car.chart.theoretical') }}
+      </span>
+    </div>
     <svg
       :width="layout.width"
       :height="layout.height"
@@ -116,6 +170,23 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
         {{ formatDate(point.date) }}
       </text>
 
+      <!-- At each Insurance Report date after the first, the outgoing
+           trajectory (in force up to the day before, extended to this
+           date) drops to the incoming report's reading. -->
+      <g v-if="theoretical">
+        <line
+          v-for="reset in theoretical.resets"
+          :key="reset.date"
+          :x1="layout.x(reset.date)"
+          :x2="layout.x(reset.date)"
+          :y1="layout.y(reset.to)"
+          :y2="layout.y(reset.from)"
+          stroke-width="1"
+          stroke-dasharray="3 3"
+          class="stroke-warning"
+        />
+      </g>
+
       <path
         :d="path"
         fill="none"
@@ -123,6 +194,17 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
         stroke-linecap="round"
         stroke-linejoin="round"
         class="stroke-primary"
+      />
+
+      <path
+        v-if="theoretical && theoreticalPath"
+        :d="theoreticalPath"
+        fill="none"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-dasharray="3 3"
+        class="stroke-warning"
       />
 
       <!-- Point inspection (hover/tap) is delivered with the comparison
@@ -136,5 +218,10 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
         class="fill-primary"
       />
     </svg>
+    <!-- Without an Insurance Report no limit exists; the actual history
+         stands alone with the guidance to add one. -->
+    <p v-if="!theoretical" class="px-2 pt-2 text-sm text-muted">
+      {{ t('car.chart.noReportsHint') }}
+    </p>
   </div>
 </template>

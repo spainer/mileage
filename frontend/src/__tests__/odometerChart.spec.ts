@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   CHART_HEIGHT,
+  buildTheoreticalSeries,
   chartPointsForCar,
   computeChartLayout,
   fitReadingDomain,
   niceTicks,
 } from '../odometerChart'
 import type { ChartPoint } from '../odometerChart'
+import { theoreticalLimit } from '../theoreticalLimit'
+import type { LimitReport } from '../theoreticalLimit'
 import { insuranceReports, mileageRecords } from '../state'
 
 const CAR_ID = 1
@@ -94,6 +97,97 @@ describe('chartPointsForCar', () => {
     mileageRecords.value = []
     insuranceReports.value = []
     expect(chartPointsForCar(CAR_ID)).toEqual([])
+  })
+})
+
+describe('buildTheoreticalSeries', () => {
+  const READINGS = 30_000
+  const CAP = 15_000
+  const FIRST_REPORT = '2024-01-15'
+  const MID = '2024-07-01'
+  const LATEST = '2024-12-01'
+
+  const report = (
+    id: number,
+    date: string,
+    odometerReading: number,
+    mileagePerYear: number,
+  ): LimitReport => ({ id, date, odometerReading, mileagePerYear })
+
+  it('computes the limit at every point date, matching the calculation itself', () => {
+    const reports = [report(21, FIRST_REPORT, READINGS, CAP)]
+    const points: ChartPoint[] = [
+      { date: FIRST_REPORT, odometerReading: READINGS, sources: ['report'] },
+      { date: MID, odometerReading: 41_000, sources: ['record'] },
+      { date: LATEST, odometerReading: 45_678, sources: ['record'] },
+    ]
+    const series = buildTheoreticalSeries(points, reports)
+    expect(series.effective).toEqual(
+      points.map((point) => theoreticalLimit(reports, point.date)),
+    )
+    expect(series.effective[0]).toBe(READINGS)
+    expect(series.resets).toEqual([])
+    expect(series.axisValues).toEqual(series.effective)
+  })
+
+  it('leaves the limit null before the first report, without plotting zero', () => {
+    const reports = [report(21, MID, 20_000, CAP)]
+    const points: ChartPoint[] = [
+      { date: FIRST_REPORT, odometerReading: READINGS, sources: ['record'] },
+      { date: MID, odometerReading: 20_000, sources: ['report'] },
+    ]
+    const series = buildTheoreticalSeries(points, reports)
+    expect(series.effective).toEqual([null, 20_000])
+    expect(series.axisValues).toEqual([20_000])
+  })
+
+  it('resets at the second report date from the outgoing trajectory to the incoming reading', () => {
+    const first = report(21, FIRST_REPORT, READINGS, CAP)
+    const second = report(22, LATEST, 10_000, 8_000)
+    const points: ChartPoint[] = [
+      { date: FIRST_REPORT, odometerReading: READINGS, sources: ['report'] },
+      { date: LATEST, odometerReading: 10_000, sources: ['report'] },
+    ]
+    const series = buildTheoreticalSeries(points, [first, second])
+    expect(series.resets).toHaveLength(1)
+    expect(series.resets[0]?.date).toBe(LATEST)
+    expect(series.resets[0]?.to).toBe(10_000)
+    // The outgoing trajectory is the first report extended to the second
+    // report date, computed without the second report in force.
+    expect(series.resets[0]?.from).toBe(theoreticalLimit([first], LATEST))
+    expect(series.axisValues).toContain(series.resets[0]?.from as number)
+  })
+
+  it('resets only once for same-date reports, which tie-break by the highest id', () => {
+    const prior = report(1, '2025-01-15', 1_000, 12_000)
+    const lowId = report(2, '2025-06-01', 20_000, 10_000)
+    const highId = report(3, '2025-06-01', 20_000, 8_000)
+    const points: ChartPoint[] = [
+      { date: '2025-01-15', odometerReading: 1_000, sources: ['report'] },
+      { date: '2025-06-01', odometerReading: 20_000, sources: ['report'] },
+      { date: '2025-06-02', odometerReading: 21_000, sources: ['record'] },
+    ]
+    for (const reports of [
+      [prior, lowId, highId],
+      [highId, prior, lowId],
+    ]) {
+      const series = buildTheoreticalSeries(points, reports)
+      expect(series.resets).toHaveLength(1)
+      expect(series.resets[0]?.date).toBe('2025-06-01')
+      // The day after the reset, the trajectory runs from the highest-id
+      // report (cap 8_000): 20_022; the other cap would give 20_027.
+      expect(series.effective[2]).toBe(20_022)
+    }
+  })
+
+  it('handles a report-less series defensively', () => {
+    const points: ChartPoint[] = [
+      { date: FIRST_REPORT, odometerReading: READINGS, sources: ['record'] },
+    ]
+    const series = buildTheoreticalSeries(points, [])
+    expect(series.effective).toEqual([null])
+    expect(series.resets).toEqual([])
+    expect(series.axisValues).toEqual([])
   })
 })
 
@@ -269,5 +363,23 @@ describe('computeChartLayout', () => {
     expect(layout.height).toBe(CHART_HEIGHT)
     expect(layout.plot.right).toBeLessThan(390)
     expect(layout.plot.bottom).toBeLessThan(CHART_HEIGHT)
+  })
+
+  it('extends the fitted domain to extra values that are not chart point readings', () => {
+    const points = [point(day(0), 10_000), point(day(30), 20_000)]
+    const plain = computeChartLayout(points, 640)
+    const withLimit = computeChartLayout(points, 640, [30_000])
+
+    // The limit sits inside the extended domain, above every reading ...
+    expect(withLimit.y(30_000)).toBeGreaterThan(withLimit.plot.top)
+    expect(withLimit.y(30_000)).toBeLessThan(withLimit.y(20_000))
+    // ... and outside the readings-only domain, which would clip it.
+    expect(plain.y(30_000)).toBeLessThan(plain.plot.top)
+
+    // The default keeps the readings-only domain.
+    expect(computeChartLayout(points, 640, []).y(10_000)).toBeCloseTo(
+      plain.y(10_000),
+      6,
+    )
   })
 })

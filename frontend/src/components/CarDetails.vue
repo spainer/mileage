@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 import { deltaLabel, evaluationLabel, formatDate, formatKm } from '../format'
 import { i18n } from '../i18n'
-import { chartPointsForCar } from '../odometerChart'
+import { buildTheoreticalSeries, chartPointsForCar } from '../odometerChart'
 import {
   currentReport,
   latestEntryForCar,
@@ -36,6 +36,15 @@ const latest = computed(() => latestEntryForCar(props.car.id))
 const reports = computed(() => reportsForCar(props.car.id))
 const inForce = computed(() => currentReport(props.car.id))
 const chartPoints = computed(() => chartPointsForCar(props.car.id))
+// The Theoretical Limit is computed fresh from the live Insurance Report
+// state on every change of either history; the cached record evaluations
+// are not read here.
+const theoretical = computed(
+  () =>
+    reports.value.length === 0
+      ? null
+      : buildTheoreticalSeries(chartPoints.value, reports.value),
+)
 
 const recordModalOpen = ref(false)
 const editingRecord = ref<RecordRow | null>(null)
@@ -109,7 +118,11 @@ function pencilLabel(row: EntryRow): string {
       <h2 class="text-sm font-medium text-foreground">
         {{ t('car.chart.title') }}
       </h2>
-      <OdometerChart v-if="chartPoints.length > 0" :points="chartPoints" />
+      <OdometerChart
+        v-if="chartPoints.length > 0"
+        :points="chartPoints"
+        :theoretical="theoretical"
+      />
       <p
         v-else
         class="rounded-lg border border-dashed py-8 text-center text-sm text-muted"

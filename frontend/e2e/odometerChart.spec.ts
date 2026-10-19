@@ -160,6 +160,14 @@ async function chartGeometry(page: Page): Promise<ChartGeometry> {
   return geometry
 }
 
+/** The `d` data of every series path in the chart, in DOM order (actual first). */
+async function pathData(dialog: ReturnType<typeof openSlideover>): Promise<string[]> {
+  return dialog
+    .locator(`svg[aria-label="${CHART_LABEL}"]`)
+    .locator('path')
+    .evaluateAll((paths) => paths.map((path) => path.getAttribute('d') ?? ''))
+}
+
 test.beforeEach(async () => {
   await wipeCars()
   await seed()
@@ -243,6 +251,13 @@ test('fits the slideover on a phone screen and thins the date labels', async ({ 
   )
   expect(overflow).toBeLessThanOrEqual(0)
 
+  // The two series stay identified on a phone: the legend labels both and
+  // fits the viewport.
+  await expect(dialog.getByText('Actual odometer reading')).toBeVisible()
+  await expect(dialog.getByText('Theoretical limit')).toBeVisible()
+  const legend = await dialog.locator('div.flex.items-center.gap-4').boundingBox()
+  expect(legend.width).toBeLessThan(375)
+
   // A wider panel renders a wider chart with more date labels.
   await page.setViewportSize({ width: 1280, height: 720 })
   const desktop = await chartGeometry(page)
@@ -299,4 +314,129 @@ test('shows the empty state for a car without readings of either kind', async ({
   await expect(dialog.getByRole('heading', { name: 'Odometer history' })).toBeVisible()
   await expect(dialog.getByText('No odometer readings yet.')).toBeVisible()
   expect(await dialog.locator(`svg[aria-label="${CHART_LABEL}"]`).count()).toBe(0)
+})
+
+test('plots the theoretical limit as a dashed second series with a legend and a reset', async ({
+  page,
+}) => {
+  // A second report mid-history: the outgoing trajectory resets to it.
+  await request(`/cars/${carId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({
+      date: secondDate,
+      odometer_reading: SECOND_READING,
+      mileage_per_year: 10_000,
+    }),
+  })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+  const geometry = await chartGeometry(page)
+  const [, limit] = await pathData(dialog)
+
+  // The theoretical path stops at the latest reading, like the actual one.
+  const limitTokens = limit.trim().split(' ')
+  expect(limitTokens[0]).toBe('M')
+  expect(Number(limitTokens[limitTokens.length - 2])).toBeCloseTo(
+    geometry.circles[geometry.circles.length - 1],
+    1,
+  )
+
+  const svg = dialog.locator(`svg[aria-label="${CHART_LABEL}"]`)
+  const [actualStroke, limitStroke] = await svg
+    .locator('path')
+    .evaluateAll((paths) => paths.map((path) => getComputedStyle(path).stroke))
+  expect(limitStroke).not.toBe(actualStroke)
+
+  // The legend above the chart identifies both series.
+  await expect(dialog.getByText('Actual odometer reading')).toBeVisible()
+  await expect(dialog.getByText('Theoretical limit')).toBeVisible()
+
+  // One dashed vertical reset at the second report's date, where the
+  // outgoing trajectory drops to the incoming report's reading.
+  const resets = svg.locator('line.stroke-warning')
+  expect(await resets.count()).toBe(1)
+  const resetX = Number((await resets.first().getAttribute('x1')) ?? 'NaN')
+  expect(resetX).toBeCloseTo(geometry.circles[1], 1)
+})
+
+test('shows the actual history with a localized hint when no report exists', async ({
+  page,
+}) => {
+  // Give the otherwise-empty car readings, but no insurance report.
+  await request(`/cars/${emptyCarId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: secondDate, odometer_reading: 10_000 }),
+  })
+  await request(`/cars/${emptyCarId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: latestDate, odometer_reading: 12_000 }),
+  })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - GC 4821')
+  await expect(dialog).toBeVisible()
+  await chartGeometry(page)
+
+  const [only] = await pathData(dialog)
+  expect(only.trim().split(' ').filter((token) => token === 'L')).toHaveLength(1)
+  expect(await dialog.getByText('Add an insurance report to see the theoretical limit.')).toBeVisible()
+  await expect(dialog.getByText('Actual odometer reading')).toBeHidden()
+  expect(
+    await dialog.locator(`svg[aria-label="${CHART_LABEL}"] line.stroke-warning`).count(),
+  ).toBe(0)
+})
+
+test('re-plots the theoretical limit after the report cap is edited in the dialog', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+  await chartGeometry(page)
+  const before = (await dialog.locator(`svg[aria-label="${CHART_LABEL}"] path`).nth(1).boundingBox())!
+
+  await dialog.getByRole('tab', { name: 'Insurance' }).click()
+  await dialog.getByRole('button', { name: 'Edit report' }).click()
+  const editModal = page.getByRole('dialog', { name: 'Edit report' })
+  await expect(editModal).toBeVisible()
+  await editModal.getByLabel('Annual mileage cap (km/year)').fill('15000')
+  await editModal.getByRole('button', { name: 'Save' }).click()
+  await expect(editModal).toBeHidden()
+  await chartGeometry(page)
+
+  const after = (await dialog.locator(`svg[aria-label="${CHART_LABEL}"] path`).nth(1).boundingBox())!
+  // The higher cap moves the limit; the chart reflects the edit without a
+  // reopen of the slideover, and the in-force summary follows it.
+  expect(Math.abs(after.y - before.y) + Math.abs(after.height - before.height)).toBeGreaterThan(5)
+  // The full in-force summary is unique (the mobile card shows the badge
+  // text separately), so it resolves to the desktop header.
+  await expect(dialog.getByText(`In force: ${formatKm(15_000)} km/year`)).toBeVisible()
+})
+
+test('plots no theoretical limit before the first insurance report', async ({ page }) => {
+  // A reading before the seeded report: the actual series starts there.
+  await request(`/cars/${carId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: daysFromNow(-500), odometer_reading: 80_000 }),
+  })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await expect(dialog).toBeVisible()
+  const geometry = await chartGeometry(page)
+  expect(geometry.circles).toHaveLength(5)
+
+  const [actual, limit] = await pathData(dialog)
+  const actualStart = Number(actual.trim().split(' ')[1])
+  const limitTokens = limit.trim().split(' ')
+  const limitStart = Number(limitTokens[1])
+
+  // The actual series starts at the earliest reading; the theoretical series
+  // only at the first report's date — not earlier, and not as zero.
+  expect(actualStart).toBeCloseTo(geometry.circles[0], 1)
+  expect(limitStart).toBeCloseTo(geometry.circles[1], 1)
+  expect(limitStart).toBeGreaterThan(actualStart)
 })

@@ -1,4 +1,5 @@
 import { timelineForCar } from './state'
+import { inForceReport, theoreticalLimit, type LimitReport } from './theoreticalLimit'
 
 /** The history types a consolidated reading can come from. */
 export type ChartSource = 'record' | 'report'
@@ -54,6 +55,67 @@ export function chartPointsForCar(carId: number): ChartPoint[] {
         ...(report ? (['report'] as ChartSource[]) : []),
       ],
     }))
+}
+
+/**
+ * One Insurance Report date where the theoretical trajectory resets: the
+ * outgoing trajectory (the in force report up to the day before, extended to
+ * this date) drops to the incoming report's Odometer Reading.
+ */
+export interface TheoreticalReset {
+  date: string
+  /** The outgoing trajectory at the report date, just before the reset. */
+  from: number
+  /** The incoming report's Odometer Reading, from which the new trajectory runs. */
+  to: number
+}
+
+/**
+ * The Theoretical Limit series for a chart: the limit at every chart point
+ * (`null` before the first Insurance Report, never a missing value plotted
+ * as zero), the report-date resets, and the axis values the fitted y domain
+ * must include beyond the displayed readings (the limits and the outgoing
+ * reset endpoints).
+ */
+export interface TheoreticalSeries {
+  effective: (number | null)[]
+  resets: TheoreticalReset[]
+  axisValues: number[]
+}
+
+/**
+ * Computes the Theoretical Limit at every chart point date and the reset at
+ * every report date after the first one. Report dates are chart point dates
+ * (reports contribute points), so every reset lands on an existing point.
+ * The input order does not matter: same-date reports tie-break by the
+ * highest id, and the outgoing trajectory of a reset uses only the reports
+ * strictly before that date.
+ */
+export function buildTheoreticalSeries(
+  points: ChartPoint[],
+  reports: LimitReport[],
+): TheoreticalSeries {
+  const effective = points.map((point) => theoreticalLimit(reports, point.date))
+
+  const resets: TheoreticalReset[] = []
+  for (const point of points) {
+    const incoming = inForceReport(reports, point.date)
+    if (incoming === null || incoming.date !== point.date) continue
+    const outgoing = reports.filter((report) => report.date < point.date)
+    const from = theoreticalLimit(outgoing, point.date)
+    if (from !== null) {
+      resets.push({ date: point.date, from, to: incoming.odometerReading })
+    }
+  }
+
+  return {
+    effective,
+    resets,
+    axisValues: [
+      ...effective.filter((value): value is number => value !== null),
+      ...resets.map((reset) => reset.from),
+    ],
+  }
 }
 
 /**
@@ -123,8 +185,18 @@ export interface ChartLayout {
  * non-empty (the caller renders the empty state otherwise). Dates are
  * parsed as calendar days in UTC, so equal elapsed time gives equal
  * horizontal spacing regardless of the display timezone.
+ *
+ * `extraValues` are values the chart displays but that are not chart point
+ * readings — the Theoretical Limit series, for instance: its limits sit on
+ * the theoretical path, and its outgoing reset endpoints are visible as the
+ * tops of the reset lines. They extend the fitted domain so nothing
+ * renders outside the plot.
  */
-export function computeChartLayout(points: ChartPoint[], width: number): ChartLayout {
+export function computeChartLayout(
+  points: ChartPoint[],
+  width: number,
+  extraValues: number[] = [],
+): ChartLayout {
   const plot: ChartPlot = {
     left: MARGIN.left,
     right: width - MARGIN.right,
@@ -140,7 +212,10 @@ export function computeChartLayout(points: ChartPoint[], width: number): ChartLa
     return plot.left + ((Date.parse(date) - t0) / (t1 - t0)) * (plot.right - plot.left)
   }
 
-  const readings = points.map((point) => point.odometerReading)
+  const readings = [
+    ...points.map((point) => point.odometerReading),
+    ...extraValues,
+  ]
   const [d0, d1] = fitReadingDomain(Math.min(...readings), Math.max(...readings))
   const y = (value: number): number =>
     plot.bottom - ((value - d0) / (d1 - d0)) * (plot.bottom - plot.top)
