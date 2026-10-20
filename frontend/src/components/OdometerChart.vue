@@ -1,14 +1,25 @@
-<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+<script lang="ts">
+/**
+ * The tooltip size assumed where the DOM cannot be measured (unit tests):
+ * the positioning clamps to these instead of the rendered size.
+ */
+export const TOOLTIP_FALLBACK_WIDTH = 220
+export const TOOLTIP_FALLBACK_HEIGHT = 90
+</script>
 
-import { formatDate, formatKm } from '../format'
-import { i18n } from '../i18n'
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+
+import { evaluationLabel, formatDate, formatKm } from '../format'
+import { i18n, locale } from '../i18n'
 import {
   CHART_FALLBACK_WIDTH,
   computeChartLayout,
   type ChartPoint,
+  type ChartSource,
   type TheoreticalSeries,
 } from '../odometerChart'
+import { evaluationToneClasses } from '../theme'
 
 const props = defineProps<{
   /**
@@ -109,6 +120,119 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
   if (index === layout.value.labeled.length - 1) return 'end'
   return 'middle'
 }
+
+// --- Point inspection -----------------------------------------------------
+// One transparent, full-column hit band per date, owning the space up to the
+// midpoints of its neighbours (the first and last band reach the plot edges),
+// receives the pointer events and opens the shared inspection. The inspected
+// values are derived from the live point, so a history change updates them,
+// and a removed date dismisses them.
+const inspectedDate = ref<string | null>(null)
+
+// The date-to-index lookup runs once; the point and limit derive from it. A
+// removed date resolves to -1 and dismisses the inspection.
+const inspectedIndex = computed(
+  () =>
+    inspectedDate.value === null
+      ? -1
+      : props.points.findIndex((point) => point.date === inspectedDate.value),
+)
+
+const inspectedPoint = computed(
+  () =>
+    inspectedIndex.value < 0
+      ? null
+      : props.points[inspectedIndex.value] ?? null,
+)
+
+const inspectedLimit = computed(() => {
+  const index = inspectedIndex.value
+  const theoretical = props.theoretical
+  if (index < 0 || theoretical === null) return null
+  return theoretical.effective[index] ?? null
+})
+
+const inspectedEvaluation = computed(() => {
+  const point = inspectedPoint.value
+  const limit = inspectedLimit.value
+  if (point === null || limit === null) return null
+  return evaluationLabel({ theoreticalLimit: limit, delta: point.odometerReading - limit })
+})
+
+// A report date after the first one resets the trajectory: the tooltip
+// names the new baseline on that point.
+const inspectedReset = computed(() => {
+  const point = inspectedPoint.value
+  const theoretical = props.theoretical
+  if (point === null || theoretical === null) return false
+  return theoretical.resets.some((reset) => reset.date === point.date)
+})
+
+function sourceLabel(sources: ChartSource[]): string {
+  const record = sources.includes('record')
+  const report = sources.includes('report')
+  if (record && report) return t('car.chart.source.both')
+  if (report) return t('car.chart.source.report')
+  return t('car.chart.source.record')
+}
+
+const hitBands = computed(() => {
+  const xs = props.points.map((point) => layout.value.x(point.date))
+  return props.points.map((point, index) => {
+    const left = index === 0 ? layout.value.plot.left : (xs[index - 1]! + xs[index]!) / 2
+    const right =
+      index === props.points.length - 1 ? layout.value.plot.right : (xs[index]! + xs[index + 1]!) / 2
+    return { date: point.date, x: left, width: right - left }
+  })
+})
+
+// Hover (mouse) opens on band entry and dismisses on band leave; touch skips
+// enter/leave so a tap is never dismissed by its own touch-up, and the
+// pointer-down toggle then closes it on the second tap.
+function isTouch(event: PointerEvent): boolean {
+  return event.pointerType === 'touch'
+}
+
+function inspect(event: PointerEvent, date: string): void {
+  if (isTouch(event)) return
+  inspectedDate.value = date
+}
+
+function dismiss(event: PointerEvent, date: string): void {
+  if (isTouch(event)) return
+  if (inspectedDate.value === date) inspectedDate.value = null
+}
+
+function toggle(date: string): void {
+  inspectedDate.value = inspectedDate.value === date ? null : date
+}
+
+// The tooltip is positioned after the render, so it can measure itself:
+// above the point when it fits, flipped below otherwise, clamped inside the
+// chart at the plot edges. The fallback size applies where the DOM cannot be
+// measured (unit tests).
+const tooltip = useTemplateRef<HTMLDivElement>('tooltip')
+
+function positionTooltip(): void {
+  const point = inspectedPoint.value
+  const element = tooltip.value
+  if (point === null || element === null) return
+
+  const tooltipWidth = element.offsetWidth || TOOLTIP_FALLBACK_WIDTH
+  const tooltipHeight = element.offsetHeight || TOOLTIP_FALLBACK_HEIGHT
+  const x = layout.value.x(point.date)
+  const y = layout.value.y(point.odometerReading)
+
+  let top = y - tooltipHeight - 8
+  if (top < 0) top = y + 8
+  top = Math.min(top, layout.value.height - tooltipHeight)
+  const left = Math.min(Math.max(0, x - tooltipWidth / 2), layout.value.width - tooltipWidth)
+
+  element.style.left = `${Math.round(left)}px`
+  element.style.top = `${Math.round(top)}px`
+}
+
+watch([inspectedPoint, layout, locale], positionTooltip, { flush: 'post' })
 </script>
 
 <template>
@@ -133,91 +257,135 @@ function xAnchor(index: number): 'start' | 'middle' | 'end' {
         {{ t('car.chart.theoretical') }}
       </span>
     </div>
-    <svg
-      :width="layout.width"
-      :height="layout.height"
-      :viewBox="`0 0 ${layout.width} ${layout.height}`"
-      role="img"
-      :aria-label="t('car.chart.aria')"
-      class="block"
-    >
-      <g v-for="tick in layout.yTicks" :key="`y-${tick}`">
-        <line
-          :x1="layout.plot.left"
-          :x2="layout.plot.right"
-          :y1="layout.y(tick)"
-          :y2="layout.y(tick)"
-          class="stroke-default"
-        />
+    <div class="relative w-full">
+      <svg
+        :width="layout.width"
+        :height="layout.height"
+        :viewBox="`0 0 ${layout.width} ${layout.height}`"
+        role="img"
+        :aria-label="t('car.chart.aria')"
+        class="block"
+      >
+        <g v-for="tick in layout.yTicks" :key="`y-${tick}`">
+          <line
+            :x1="layout.plot.left"
+            :x2="layout.plot.right"
+            :y1="layout.y(tick)"
+            :y2="layout.y(tick)"
+            class="stroke-default"
+          />
+          <text
+            :x="layout.plot.left - 8"
+            :y="layout.y(tick) + 3"
+            text-anchor="end"
+            class="fill-(--ui-text-muted) text-[10px] tabular-nums"
+          >
+            {{ formatKm(tick) }}
+          </text>
+        </g>
+
         <text
-          :x="layout.plot.left - 8"
-          :y="layout.y(tick) + 3"
-          text-anchor="end"
+          v-for="(point, index) in layout.labeled"
+          :key="`x-${point.date}`"
+          :x="layout.x(point.date)"
+          :y="layout.plot.bottom + 16"
+          :text-anchor="xAnchor(index)"
           class="fill-(--ui-text-muted) text-[10px] tabular-nums"
         >
-          {{ formatKm(tick) }}
+          {{ formatDate(point.date) }}
         </text>
-      </g>
 
-      <text
-        v-for="(point, index) in layout.labeled"
-        :key="`x-${point.date}`"
-        :x="layout.x(point.date)"
-        :y="layout.plot.bottom + 16"
-        :text-anchor="xAnchor(index)"
-        class="fill-(--ui-text-muted) text-[10px] tabular-nums"
-      >
-        {{ formatDate(point.date) }}
-      </text>
+        <!-- At each Insurance Report date after the first, the outgoing
+             trajectory (in force up to the day before, extended to this
+             date) drops to the incoming report's reading. -->
+        <g v-if="theoretical">
+          <line
+            v-for="reset in theoretical.resets"
+            :key="reset.date"
+            :x1="layout.x(reset.date)"
+            :x2="layout.x(reset.date)"
+            :y1="layout.y(reset.to)"
+            :y2="layout.y(reset.from)"
+            stroke-width="1"
+            stroke-dasharray="3 3"
+            class="stroke-warning"
+          />
+        </g>
 
-      <!-- At each Insurance Report date after the first, the outgoing
-           trajectory (in force up to the day before, extended to this
-           date) drops to the incoming report's reading. -->
-      <g v-if="theoretical">
-        <line
-          v-for="reset in theoretical.resets"
-          :key="reset.date"
-          :x1="layout.x(reset.date)"
-          :x2="layout.x(reset.date)"
-          :y1="layout.y(reset.to)"
-          :y2="layout.y(reset.from)"
-          stroke-width="1"
+        <path
+          :d="path"
+          fill="none"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="stroke-primary"
+        />
+
+        <path
+          v-if="theoretical && theoreticalPath"
+          :d="theoreticalPath"
+          fill="none"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
           stroke-dasharray="3 3"
           class="stroke-warning"
         />
-      </g>
 
-      <path
-        :d="path"
-        fill="none"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        class="stroke-primary"
-      />
+        <circle
+          v-for="point in points"
+          :key="point.date"
+          :cx="layout.x(point.date)"
+          :cy="layout.y(point.odometerReading)"
+          r="3.5"
+          class="fill-primary"
+        />
 
-      <path
-        v-if="theoretical && theoreticalPath"
-        :d="theoreticalPath"
-        fill="none"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-dasharray="3 3"
-        class="stroke-warning"
-      />
+        <!-- One transparent full-column band per date, after the markers so
+             it receives the pointer events; hovering or tapping opens the
+             shared point inspection. -->
+        <g>
+          <rect
+            v-for="band in hitBands"
+            :key="band.date"
+            :x="band.x"
+            :y="layout.plot.top"
+            :width="band.width"
+            :height="layout.plot.bottom - layout.plot.top"
+            fill="transparent"
+            :data-date="band.date"
+            @pointerenter="inspect($event, band.date)"
+            @pointerleave="dismiss($event, band.date)"
+            @pointerdown="toggle(band.date)"
+          />
+        </g>
+      </svg>
 
-      <!-- Point inspection (hover/tap) is delivered with the comparison
-           chart; the markers are presented, not interactive, here. -->
-      <circle
-        v-for="point in points"
-        :key="point.date"
-        :cx="layout.x(point.date)"
-        :cy="layout.y(point.odometerReading)"
-        r="3.5"
-        class="fill-primary"
-      />
-    </svg>
+      <!-- The shared point inspection; the inspected values are derived
+           from the live history, so a change updates or dismisses them.
+           It is read-only: it never opens an edit form. -->
+      <div
+        v-if="inspectedPoint"
+        ref="tooltip"
+        role="tooltip"
+        class="pointer-events-none absolute z-10 rounded-lg border border-slate-800 bg-slate-900/95 px-3 py-2 text-xs shadow-lg"
+      >
+        <p class="font-medium text-foreground">{{ formatDate(inspectedPoint.date) }}</p>
+        <p class="tabular-nums text-foreground">
+          {{ formatKm(inspectedPoint.odometerReading) }} km
+        </p>
+        <p class="text-muted">{{ sourceLabel(inspectedPoint.sources) }}</p>
+        <p v-if="inspectedLimit !== null" class="tabular-nums text-muted">
+          {{ t('car.chart.theoretical') }}: {{ formatKm(inspectedLimit) }} km
+        </p>
+        <p v-if="inspectedEvaluation" :class="evaluationToneClasses[inspectedEvaluation.tone]">
+          {{ inspectedEvaluation.text }}
+        </p>
+        <p v-if="inspectedReset" class="text-warning">
+          {{ t('car.chart.newBaseline') }}
+        </p>
+      </div>
+    </div>
     <!-- Without an Insurance Report no limit exists; the actual history
          stands alone with the guidance to add one. -->
     <p v-if="!theoretical" class="px-2 pt-2 text-sm text-muted">

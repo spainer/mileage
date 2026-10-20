@@ -1,6 +1,8 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { formatDate, formatKm } from '../src/format'
+import { evaluationLabel, formatDate, formatKm } from '../src/format'
+import { i18n, setLocale } from '../src/i18n'
+import { theoreticalLimit, type LimitReport } from '../src/theoreticalLimit'
 
 const BACKEND = 'http://localhost:8000/api'
 
@@ -37,6 +39,56 @@ const NEW_READING = 110_000
 
 const CHART_LABEL = 'Odometer readings over time'
 
+// The seeded report as the limit calculation reads it, for the Node-side
+// expected values the inspection assertions compute.
+const SEED_REPORT: LimitReport = {
+  id: 1,
+  date: oldestDate,
+  odometerReading: OLDEST_READING,
+  mileagePerYear: 12_000,
+}
+
+/** The chart's effective limit at a date: the seeded report plus extras. */
+function limitAt(date: string, extra: LimitReport[] = []): number | null {
+  return theoreticalLimit([SEED_REPORT, ...extra], date)
+}
+
+/** The point's transparent hit band: the pointer events open the inspection. */
+function bandOf(page: Page, date: string, label: string = CHART_LABEL): Locator {
+  return page.locator(`svg[aria-label="${label}"] rect[data-date="${date}"]`)
+}
+
+function tooltipOf(page: Page): Locator {
+  return page.getByRole('tooltip')
+}
+
+/** Hovers the point's hit band and returns the shared inspection. */
+async function hoverPoint(page: Page, date: string, label: string = CHART_LABEL): Promise<Locator> {
+  await bandOf(page, date, label).hover()
+  return tooltipOf(page)
+}
+
+/**
+ * Asserts the shared inspection of the latest reading in the current
+ * locale: the Node-side i18n module supplies the localized labels and
+ * number/date formatting, so the same assertions serve English and German.
+ */
+async function expectLatestPointInspected(tooltip: Locator): Promise<void> {
+  const latestLimit = limitAt(latestDate)
+  expect(latestLimit).not.toBeNull()
+
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText(formatDate(latestDate))
+  await expect(tooltip).toContainText(`${formatKm(LATEST_READING)} km`)
+  await expect(tooltip).toContainText(i18n.global.t('car.chart.source.record'))
+  await expect(tooltip).toContainText(
+    `${i18n.global.t('car.chart.theoretical')}: ${formatKm(latestLimit!)} km`,
+  )
+  await expect(tooltip).toContainText(
+    evaluationLabel({ theoreticalLimit: latestLimit!, delta: LATEST_READING - latestLimit! }).text,
+  )
+}
+
 let carId = 0
 let emptyCarId = 0
 let sameDateCarId = 0
@@ -67,9 +119,14 @@ async function seed(): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ date: latestDate, odometer_reading: LATEST_READING }),
   })
+  // The same report the limit calculation reads as SEED_REPORT.
   await request(`/cars/${carId}/insurance-reports`, {
     method: 'POST',
-    body: JSON.stringify({ date: oldestDate, odometer_reading: OLDEST_READING, mileage_per_year: 12_000 }),
+    body: JSON.stringify({
+      date: SEED_REPORT.date,
+      odometer_reading: SEED_REPORT.odometerReading,
+      mileage_per_year: SEED_REPORT.mileagePerYear,
+    }),
   })
 
   // No readings of either kind.
@@ -122,7 +179,7 @@ interface ChartGeometry {
  * x labels below it). Waits until the responsive width has settled, because
  * the chart renders at a fallback width before its observer fires.
  */
-async function chartGeometry(page: Page): Promise<ChartGeometry> {
+async function chartGeometry(page: Page, label: string = CHART_LABEL): Promise<ChartGeometry> {
   const pending = await page.waitForFunction(
     (label: string) => {
       const dialog = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
@@ -152,7 +209,7 @@ async function chartGeometry(page: Page): Promise<ChartGeometry> {
           .map((text) => text.textContent ?? ''),
       }
     },
-    CHART_LABEL,
+    label,
     { timeout: 5000 },
   )
   const geometry = await pending.jsonValue()
@@ -175,6 +232,13 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   await wipeCars()
+})
+
+// The German tests switch the Node-side i18n module for their expected
+// values; reset it for the next file in the worker (the test files share one
+// module registry).
+test.afterEach(() => {
+  setLocale('en')
 })
 
 test('shows the combined history above the tabs as a chart fitted to the readings', async ({
@@ -239,6 +303,11 @@ test('fits the slideover on a phone screen and thins the date labels', async ({ 
 
   const dialog = await openSlideover(page, 'M - AB 1234')
   await expect(dialog).toBeVisible()
+
+  // The phone slideover opens over the card that was clicked, so the virtual
+  // mouse sits over the chart and its point opens on the appear-hover; a
+  // phone has no pointer, so move it away before asserting.
+  await page.mouse.move(0, 0)
 
   const phone = await chartGeometry(page)
   expect(phone.circles).toHaveLength(4)
@@ -418,9 +487,10 @@ test('re-plots the theoretical limit after the report cap is edited in the dialo
 
 test('plots no theoretical limit before the first insurance report', async ({ page }) => {
   // A reading before the seeded report: the actual series starts there.
+  const preReportDate = daysFromNow(-500)
   await request(`/cars/${carId}/mileage-records`, {
     method: 'POST',
-    body: JSON.stringify({ date: daysFromNow(-500), odometer_reading: 80_000 }),
+    body: JSON.stringify({ date: preReportDate, odometer_reading: 80_000 }),
   })
   await page.goto('/')
 
@@ -439,4 +509,226 @@ test('plots no theoretical limit before the first insurance report', async ({ pa
   expect(actualStart).toBeCloseTo(geometry.circles[0], 1)
   expect(limitStart).toBeCloseTo(geometry.circles[1], 1)
   expect(limitStart).toBeGreaterThan(actualStart)
+
+  // The pre-report point inspects the same way: the reading and its source,
+  // but no limit and no difference, because no trajectory is in force yet.
+  const tooltip = await hoverPoint(page, preReportDate)
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText(formatKm(80_000))
+  await expect(tooltip).toContainText('Mileage record')
+  await expect(tooltip.getByText('Theoretical limit')).toHaveCount(0)
+  await expect(tooltip.getByText(/km over|km under|On limit/)).toHaveCount(0)
+})
+
+// --- Point inspection (#66) ------------------------------------------------
+
+test('inspects a point on hover with its date, reading, source, limit, and difference', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await chartGeometry(page)
+
+  await expect(tooltipOf(page)).toBeHidden()
+
+  // The latest reading: a record over its limit.
+  const tooltip = await hoverPoint(page, latestDate)
+  await expectLatestPointInspected(tooltip)
+
+  // The report's own date: the oldest point, a report on its limit.
+  const oldestLimit = limitAt(oldestDate)
+  expect(oldestLimit).toBe(OLDEST_READING)
+  await hoverPoint(page, oldestDate)
+  await expect(tooltip).toContainText(formatDate(oldestDate))
+  await expect(tooltip).toContainText(`${formatKm(OLDEST_READING)} km`)
+  await expect(tooltip).toContainText('Insurance report')
+  await expect(tooltip).toContainText(`Theoretical limit: ${formatKm(oldestLimit!)} km`)
+  await expect(tooltip).toContainText('On limit')
+
+  // Moving off the chart dismisses the inspection.
+  await dialog.getByRole('heading', { name: 'Odometer history' }).hover()
+  await expect(tooltipOf(page)).toBeHidden()
+})
+
+test('keeps the tooltip inside the slideover at the plot edges on phone and desktop', async ({
+  page,
+}) => {
+  const check = async (dialog: Locator) => {
+    const frame = (await dialog.boundingBox())!
+    for (const date of [oldestDate, latestDate]) {
+      await bandOf(page, date).hover()
+      const tip = (await tooltipOf(page).boundingBox())!
+      expect(tip.x, `tooltip left (${date})`).toBeGreaterThanOrEqual(frame.x - 1)
+      expect(tip.y, `tooltip top (${date})`).toBeGreaterThanOrEqual(frame.y - 1)
+      expect(tip.x + tip.width, `tooltip right (${date})`).toBeLessThanOrEqual(
+        frame.x + frame.width + 1,
+      )
+      expect(tip.y + tip.height, `tooltip bottom (${date})`).toBeLessThanOrEqual(
+        frame.y + frame.height + 1,
+      )
+    }
+  }
+
+  // Phone: the narrowest panel, where the fallback width would overflow.
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await chartGeometry(page)
+  await check(dialog)
+
+  // The tooltip is open on the latest point after the check: at 375px every
+  // line of it fits on a single line and is readable, not clipped.
+  const clippedLines = await page.evaluate(() => {
+    const tip = document.querySelector('[role="tooltip"]')
+    if (!tip) return -1
+    return Array.from(tip.querySelectorAll('p')).filter(
+      (line) => line.scrollWidth > line.clientWidth,
+    ).length
+  })
+  expect(clippedLines).toBe(0)
+
+  // Desktop: the plot edges at the wider layout.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await chartGeometry(page)
+  await check(dialog)
+})
+
+test('annotates the new insurance baseline in the inspection at a reset', async ({ page }) => {
+  // A second report on the second date: the trajectory resets to it there.
+  const resetReport: LimitReport = {
+    id: 2,
+    date: secondDate,
+    odometerReading: SECOND_READING,
+    mileagePerYear: 10_000,
+  }
+  await request(`/cars/${carId}/insurance-reports`, {
+    method: 'POST',
+    body: JSON.stringify({
+      date: secondDate,
+      odometer_reading: SECOND_READING,
+      mileage_per_year: 10_000,
+    }),
+  })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  const tooltip = await hoverPoint(page, secondDate)
+  await expect(tooltip).toBeVisible()
+
+  // The reset point consolidates a record and the report, so both sources are
+  // named; the limit is the incoming report's reading, on its limit.
+  const resetLimit = limitAt(secondDate, [resetReport])
+  expect(resetLimit).toBe(SECOND_READING)
+  await expect(tooltip).toContainText('Mileage record and insurance report')
+  await expect(tooltip).toContainText(`Theoretical limit: ${formatKm(resetLimit!)} km`)
+  await expect(tooltip).toContainText('On limit')
+  await expect(tooltip).toContainText('New insurance baseline')
+})
+
+test('shows the reading without a limit in the inspection when no report exists', async ({
+  page,
+}) => {
+  // Give the otherwise-empty car records, but no insurance report.
+  await request(`/cars/${emptyCarId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: secondDate, odometer_reading: 10_000 }),
+  })
+  await request(`/cars/${emptyCarId}/mileage-records`, {
+    method: 'POST',
+    body: JSON.stringify({ date: latestDate, odometer_reading: 12_000 }),
+  })
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - GC 4821')
+  await chartGeometry(page)
+
+  const tooltip = await hoverPoint(page, latestDate)
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText(formatDate(latestDate))
+  await expect(tooltip).toContainText(`${formatKm(12_000)} km`)
+  await expect(tooltip).toContainText('Mileage record')
+
+  // No limit exists, so the limit and difference rows are absent entirely.
+  await expect(tooltip.getByText('Theoretical limit')).toHaveCount(0)
+  await expect(tooltip.getByText(/km over|km under|On limit/)).toHaveCount(0)
+})
+
+test('inspecting a point never opens a form or changes the data', async ({ page }) => {
+  await page.goto('/')
+
+  const dialog = await openSlideover(page, 'M - AB 1234')
+  await chartGeometry(page)
+
+  const band = bandOf(page, latestDate)
+  await band.hover()
+  const tooltip = tooltipOf(page)
+  await expect(tooltip).toBeVisible()
+
+  // A click on the point toggles the inspection (it was open from the hover);
+  // nothing else happens.
+  await band.click()
+  await expect(tooltip).toBeHidden()
+
+  // No form opens and the stored history is unchanged.
+  await expect(page.getByRole('dialog', { name: 'Add reading' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Edit reading' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Add report' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Edit report' })).toHaveCount(0)
+  const after = await chartGeometry(page)
+  expect(after.circles).toHaveLength(4)
+  const records = (await request(`/cars/${carId}/mileage-records`)) as Array<{ id: number }>
+  expect(records).toHaveLength(3)
+  const reports = (await request(`/cars/${carId}/insurance-reports`)) as Array<{ id: number }>
+  expect(reports).toHaveLength(1)
+})
+
+test.describe('touch', () => {
+  test.use({ hasTouch: true })
+
+  test('taps a point open and closes it on the second tap', async ({ page }) => {
+    await page.goto('/')
+
+    const dialog = await openSlideover(page, 'M - AB 1234')
+    await chartGeometry(page)
+
+    const tooltip = tooltipOf(page)
+    await expect(tooltip).toBeHidden()
+
+    const band = bandOf(page, thirdDate)
+    await band.tap()
+    await expect(tooltip).toBeVisible()
+    await expect(tooltip).toContainText(formatDate(thirdDate))
+    await expect(tooltip).toContainText(`${formatKm(THIRD_READING)} km`)
+    await expect(tooltip).toContainText('Mileage record')
+
+    // A second tap on the same point closes the inspection.
+    await band.tap()
+    await expect(tooltip).toBeHidden()
+  })
+})
+
+test.describe('German (de-DE browser)', () => {
+  test.use({ locale: 'de-DE' })
+
+  // The chart's localized aria-label in the German interface.
+  const GERMAN_CHART_LABEL = 'Kilometerstandsverlauf'
+
+  // The Node-side i18n module is shared by the test files in the worker;
+  // switch it so the expected values match the browser's locale.
+  test.beforeEach(() => {
+    setLocale('de')
+  })
+
+  test('inspects points with German wording and German number and date formatting', async ({
+    page,
+  }) => {
+    await page.goto('/')
+
+    const dialog = await openSlideover(page, 'M - AB 1234')
+    await chartGeometry(page, GERMAN_CHART_LABEL)
+
+    const tooltip = await hoverPoint(page, latestDate, GERMAN_CHART_LABEL)
+    await expectLatestPointInspected(tooltip)
+  })
 })

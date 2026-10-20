@@ -3,6 +3,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import CarDetails from '../components/CarDetails.vue'
+import { TOOLTIP_FALLBACK_WIDTH } from '../components/OdometerChart.vue'
 import { formatDate, formatKm, isoLocalDate } from '../format'
 import { setLocale } from '../i18n'
 import {
@@ -102,11 +103,26 @@ const UBadgeStub = defineComponent({
 })
 
 // The app only opens modals through user interaction; closed, like the real
-// UModal, the stub renders nothing.
+// UModal, the stub renders nothing. Open, it exposes the same observable
+// structure the app relies on — the title plus the named body and footer
+// slots — so the read-only behaviour of the chart inspection stays
+// assertable.
 const UModalStub = defineComponent({
   name: 'UModal',
-  setup() {
-    return () => null
+  props: { open: Boolean, title: String, description: String },
+  setup(props, { slots }) {
+    return () =>
+      props.open
+        ? h(
+            'div',
+            { class: 'umodal-stub', role: 'dialog', 'aria-label': props.title ?? '' },
+            [
+              h('p', { class: 'umodal-title' }, props.title ?? ''),
+              h('div', { class: 'umodal-body' }, slots.body?.() ?? []),
+              h('div', { class: 'umodal-footer' }, slots.footer?.() ?? []),
+            ],
+          )
+        : null
   },
 })
 
@@ -745,6 +761,289 @@ describe('CarDetails odometer chart', () => {
       await nextTick()
       expect(section.querySelectorAll('svg path')).toHaveLength(1)
       expect(section.textContent).toContain('Add an insurance report to see the theoretical limit.')
+    })
+  })
+
+  describe('point inspection', () => {
+    function tooltip(wrapper: VueWrapper): Element | null {
+      return chartSection(wrapper).querySelector('[role="tooltip"]')
+    }
+
+    function dispatch(
+      wrapper: VueWrapper,
+      date: string,
+      type: 'pointerdown' | 'pointerenter' | 'pointerleave',
+      pointerType = 'mouse',
+    ): void {
+      const element = chartSection(wrapper).querySelector(`rect[data-date="${date}"]`)
+      if (!element) throw new Error(`no hit band for ${date}`)
+      element.dispatchEvent(new PointerEvent(type, { pointerType }))
+    }
+
+    async function hover(wrapper: VueWrapper, date: string): Promise<void> {
+      dispatch(wrapper, date, 'pointerenter')
+      await nextTick()
+    }
+
+    async function leave(wrapper: VueWrapper, date: string, pointerType = 'mouse'): Promise<void> {
+      dispatch(wrapper, date, 'pointerleave', pointerType)
+      await nextTick()
+    }
+
+    async function tap(wrapper: VueWrapper, date: string, pointerType = 'touch'): Promise<void> {
+      dispatch(wrapper, date, 'pointerdown', pointerType)
+      await nextTick()
+    }
+
+    it('renders one full-column hit band per point, oldest first', () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      const bands = wrapper.findAll('rect[data-date]')
+      expect(bands).toHaveLength(3)
+      expect(bands.map((band) => band.attributes('data-date'))).toEqual([
+        OLD_DATE,
+        MIDDLE_DATE,
+        LATEST_DATE,
+      ])
+    })
+
+    it('shows the date, reading, source, limit, and over-limit difference on hover', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      const limit = theoreticalLimit(reportsForCar(1), LATEST_DATE)
+      expect(limit).not.toBeNull()
+      expect(tip!.textContent).toContain(formatDate(LATEST_DATE))
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(limit!)}`)
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING - limit!)} km over`)
+    })
+
+    it('shows the under-limit difference for an under-limit reading', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      const limit = theoreticalLimit(reportsForCar(1), MIDDLE_DATE)
+      expect(limit).not.toBeNull()
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(limit!)}`)
+      expect(tip!.textContent).toContain(`${formatKm(limit! - MIDDLE_READING)} km under`)
+    })
+
+    it('shows the reading and source without a limit for records-only histories', async () => {
+      seedHistory()
+      insuranceReports.value = []
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).not.toContain('Theoretical limit')
+    })
+
+    it('never presents the missing limit as zero before the first report', async () => {
+      seedHistory()
+      // Move the only report to the latest date: every earlier point sits
+      // before the first report and has no theoretical limit at all.
+      insuranceReports.value = [
+        {
+          id: 21,
+          carId: 1,
+          date: LATEST_DATE,
+          odometerReading: REPORT_READING,
+          mileagePerYear: CAP_PER_YEAR,
+        },
+      ]
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(formatDate(MIDDLE_DATE))
+      expect(tip!.textContent).toContain(`${formatKm(MIDDLE_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).not.toContain('Theoretical limit')
+      expect(tip!.textContent).not.toContain('km over')
+      expect(tip!.textContent).not.toContain('km under')
+      expect(tip!.textContent).not.toContain('On limit')
+    })
+
+    it('identifies a report-only reading and shows no reset before the first report', async () => {
+      seedHistory()
+      mileageRecords.value = []
+      const wrapper = mountDetails()
+      await hover(wrapper, OLD_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain('Insurance report')
+      // A report on its own date is on its limit; no earlier report exists to
+      // reset from, so no baseline annotation.
+      expect(tip!.textContent).toContain('On limit')
+      expect(tip!.textContent).not.toContain('New insurance baseline')
+    })
+
+    it('names both sources on a same-date consolidated point', async () => {
+      seedHistory()
+      insuranceReports.value.push({
+        id: 22,
+        carId: 1,
+        date: LATEST_DATE,
+        odometerReading: LATEST_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      })
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      expect(tooltip(wrapper)!.textContent).toContain('Mileage record and insurance report')
+    })
+
+    it('annotates a reset with the new insurance baseline', async () => {
+      seedHistory()
+      insuranceReports.value.push({
+        id: 22,
+        carId: 1,
+        date: MIDDLE_DATE,
+        odometerReading: MIDDLE_READING,
+        mileagePerYear: 8_000,
+      })
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      // The effective limit at the reset date is the incoming report's reading.
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(MIDDLE_READING)}`)
+      expect(tip!.textContent).toContain('On limit')
+      expect(tip!.textContent).toContain('New insurance baseline')
+    })
+
+    it('localizes the tooltip with the rest of the app', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      setLocale('de')
+      await nextTick()
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain('Theoretisches Limit')
+      expect(tip!.textContent).toContain('km über')
+      expect(tip!.textContent).toContain('Erfassung')
+    })
+
+    it('toggles the inspection on pointer down', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await tap(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).toBeNull()
+
+      await tap(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).not.toBeNull()
+    })
+
+    it('keeps the inspection open on touch pointer leave and closes on the second tap', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await tap(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await leave(wrapper, LATEST_DATE, 'touch')
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await tap(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('dismisses the inspection when the mouse leaves the band', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await leave(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('dismisses the inspection when the inspected reading is removed', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      mileageRecords.value = mileageRecords.value.filter((record) => record.date !== LATEST_DATE)
+      await nextTick()
+
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('updates the inspected values live when the history changes', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const changed = 46_000
+      mileageRecords.value = mileageRecords.value.map((record) =>
+        record.date === LATEST_DATE ? { ...record, odometerReading: changed } : record,
+      )
+      await nextTick()
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(changed)} km`)
+      expect(tip!.textContent).not.toContain(`${formatKm(LATEST_READING)} km`)
+    })
+
+    it('never opens a modal from the inspection', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      await tap(wrapper, LATEST_DATE)
+
+      expect(wrapper.find('.umodal-stub').exists()).toBe(false)
+    })
+
+    it('clamps the tooltip to the chart edges at the fallback width', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, OLD_DATE)
+      expect((tooltip(wrapper)! as HTMLElement).style.left).toBe('0px')
+
+      await hover(wrapper, LATEST_DATE)
+      const rightEdge = CHART_FALLBACK_WIDTH - TOOLTIP_FALLBACK_WIDTH
+      expect((tooltip(wrapper)! as HTMLElement).style.left).toBe(`${rightEdge}px`)
+    })
+
+    it('inspects a single-point history from the centre of the plot', async () => {
+      mileageRecords.value = [
+        { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+      ]
+      insuranceReports.value = []
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).not.toContain('Theoretical limit')
     })
   })
 })
