@@ -3,9 +3,17 @@ import { defineComponent, h, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import CarDetails from '../components/CarDetails.vue'
+import { TOOLTIP_FALLBACK_WIDTH } from '../components/OdometerChart.vue'
 import { formatDate, formatKm, isoLocalDate } from '../format'
 import { setLocale } from '../i18n'
-import { insuranceReports, mileageRecords } from '../state'
+import {
+  CHART_FALLBACK_WIDTH,
+  buildTheoreticalSeries,
+  chartPointsForCar,
+  computeChartLayout,
+} from '../odometerChart'
+import { theoreticalLimit } from '../theoreticalLimit'
+import { insuranceReports, mileageRecords, reportsForCar } from '../state'
 
 const CAR = { id: 1, manufacturer: 'Volkswagen', model: 'Golf', license: 'M-AB1234' }
 
@@ -95,11 +103,26 @@ const UBadgeStub = defineComponent({
 })
 
 // The app only opens modals through user interaction; closed, like the real
-// UModal, the stub renders nothing.
+// UModal, the stub renders nothing. Open, it exposes the same observable
+// structure the app relies on — the title plus the named body and footer
+// slots — so the read-only behaviour of the chart inspection stays
+// assertable.
 const UModalStub = defineComponent({
   name: 'UModal',
-  setup() {
-    return () => null
+  props: { open: Boolean, title: String, description: String },
+  setup(props, { slots }) {
+    return () =>
+      props.open
+        ? h(
+            'div',
+            { class: 'umodal-stub', role: 'dialog', 'aria-label': props.title ?? '' },
+            [
+              h('p', { class: 'umodal-title' }, props.title ?? ''),
+              h('div', { class: 'umodal-body' }, slots.body?.() ?? []),
+              h('div', { class: 'umodal-footer' }, slots.footer?.() ?? []),
+            ],
+          )
+        : null
   },
 })
 
@@ -334,5 +357,693 @@ describe('CarDetails empty states', () => {
     expect(mileage.text()).toContain('Noch keine Erfassungen.')
     expect(insurance.text()).toContain('noch kein Bericht')
     expect(insurance.text()).toContain('Noch keine Berichte.')
+  })
+})
+
+describe('CarDetails odometer chart', () => {
+  // Fixed dates so the oldest-first order cannot flip with the test run
+  // date; the shared fixture's report date drifts with `Date.now()`.
+  const OLD_DATE = '2025-09-01'
+
+  function seedHistory(): void {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, evaluation: null },
+    ]
+    insuranceReports.value = [
+      {
+        id: 21,
+        carId: 1,
+        date: OLD_DATE,
+        odometerReading: REPORT_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      },
+    ]
+  }
+
+  function chartSection(wrapper: VueWrapper): Element {
+    const section = wrapper.element.children[0]
+    if (!section) throw new Error('CarDetails renders no chart section')
+    return section
+  }
+
+  it('renders the chart above the tabs, outside the tab contents', () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    const [section, tabs] = wrapper.element.children
+
+    const svg = section.querySelector('svg')
+    expect(svg).not.toBeNull()
+    expect(svg?.getAttribute('aria-label')).toBe('Odometer readings over time')
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Odometer history')
+
+    expect(tabs.classList.contains('utabs-stub')).toBe(true)
+    expect(tabs.querySelectorAll('svg')).toHaveLength(0)
+  })
+
+  it('renders one marker per date, oldest first, with time-proportional spacing', () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    const circles = wrapper.findAll('circle')
+    expect(circles).toHaveLength(3)
+
+    const cxs = circles.map((circle) => Number(circle.attributes('cx')))
+    const cys = circles.map((circle) => Number(circle.attributes('cy')))
+
+    // Oldest first along the x axis, from the left plot edge to the right one.
+    expect(cxs[0]).toBeLessThan(cxs[1])
+    expect(cxs[1]).toBeLessThan(cxs[2])
+
+    // Horizontal spacing is proportional to elapsed time, not to the index.
+    const t0 = Date.parse(OLD_DATE)
+    const t1 = Date.parse(LATEST_DATE)
+    expect((cxs[1] - cxs[0]) / (cxs[2] - cxs[0])).toBeCloseTo(
+      (Date.parse(MIDDLE_DATE) - t0) / (t1 - t0),
+      3,
+    )
+
+    // Higher readings sit higher on the chart.
+    expect(cys[0]).toBeGreaterThan(cys[1])
+    expect(cys[1]).toBeGreaterThan(cys[2])
+  })
+
+  it('renders flat readings on one horizontal line inside the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: 5_000, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: 5_000, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    const cys = wrapper.findAll('circle').map((circle) => Number(circle.attributes('cy')))
+    expect(cys).toHaveLength(2)
+    expect(cys[0]).toBeCloseTo(cys[1], 5)
+    // A span-less domain is padded around its value, so the line is
+    // vertically centred in the plot rather than on its edge.
+    expect(cys[0]).toBeCloseTo(112, 5)
+  })
+
+  it('collapses a same-date record and report into one marker', () => {
+    seedHistory()
+    insuranceReports.value.push({
+      id: 22,
+      carId: 1,
+      date: LATEST_DATE,
+      odometerReading: LATEST_READING,
+      mileagePerYear: CAP_PER_YEAR,
+    })
+    const wrapper = mountDetails()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+  })
+
+  it('renders records-only and reports-only histories', () => {
+    seedHistory()
+    insuranceReports.value = []
+    expect(mountDetails().findAll('circle')).toHaveLength(2)
+
+    mileageRecords.value = []
+    insuranceReports.value = [
+      {
+        id: 21,
+        carId: 1,
+        date: OLD_DATE,
+        odometerReading: REPORT_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      },
+    ]
+    expect(mountDetails().findAll('circle')).toHaveLength(1)
+  })
+
+  it('centers a single-date history in the middle of the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const circle = mountDetails().find('circle')
+    expect(circle.exists()).toBe(true)
+    // 640 px fallback width: plot runs from 56 to 624.
+    expect(Number(circle.attributes('cx'))).toBeCloseTo(340, 5)
+  })
+
+  it('renders all-zero readings inside the plot', () => {
+    mileageRecords.value = [
+      { id: 11, carId: 1, date: LATEST_DATE, odometerReading: 0, evaluation: null },
+      { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: 0, evaluation: null },
+    ]
+    insuranceReports.value = []
+    const circles = mountDetails().findAll('circle')
+    expect(circles).toHaveLength(2)
+    const cys = circles.map((circle) => Number(circle.attributes('cy')))
+    expect(cys[0]).toBeCloseTo(cys[1], 5)
+    expect(cys[0]).toBeCloseTo(112, 5)
+    const cxs = circles.map((circle) => Number(circle.attributes('cx')))
+    expect(cxs[0]).toBeLessThan(cxs[1])
+  })
+
+  it('shows the English empty state when there are no readings of either kind', () => {
+    mileageRecords.value = []
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    const section = chartSection(wrapper)
+    expect(section.querySelector('svg')).toBeNull()
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Odometer history')
+    expect(section.textContent).toContain('No odometer readings yet.')
+  })
+
+  it('shows the German empty state after a live locale switch', async () => {
+    mileageRecords.value = []
+    insuranceReports.value = []
+    const wrapper = mountDetails()
+    setLocale('de')
+    await nextTick()
+    const section = chartSection(wrapper)
+    expect(section.querySelector('svg')).toBeNull()
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Kilometerstandsverlauf')
+    expect(section.textContent).toContain('Noch keine Kilometerstände.')
+  })
+
+  it('updates live when the histories change, without remounting', async () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+
+    mileageRecords.value.push({
+      id: 13,
+      carId: 1,
+      date: '2026-08-15',
+      odometerReading: 43_000,
+      evaluation: null,
+    })
+    await nextTick()
+    expect(wrapper.findAll('circle')).toHaveLength(4)
+
+    insuranceReports.value = []
+    await nextTick()
+    expect(wrapper.findAll('circle')).toHaveLength(3)
+  })
+
+  it('ignores readings of other cars', () => {
+    seedHistory()
+    mileageRecords.value.push({
+      id: 31,
+      carId: 2,
+      date: '2026-09-15',
+      odometerReading: 60_000,
+      evaluation: null,
+    })
+    expect(mountDetails().findAll('circle')).toHaveLength(3)
+  })
+
+  it('translates the chart title, aria label, and date labels', async () => {
+    seedHistory()
+    const wrapper = mountDetails()
+    setLocale('de')
+    await nextTick()
+
+    const section = chartSection(wrapper)
+    const svg = section.querySelector('svg')
+    expect(svg?.getAttribute('aria-label')).toBe('Kilometerstandsverlauf')
+    expect(section.querySelector('h2')?.textContent?.trim()).toBe('Kilometerstandsverlauf')
+
+    // The legend's series names are localised with the rest.
+    expect(section.textContent).toContain('Tatsächlicher Kilometerstand')
+    expect(section.textContent).toContain('Theoretisches Limit')
+
+    // The span ends are always labelled; the middle reading sits 29 days
+    // from the last one, so its date label may be thinned away at this
+    // width. The labelled dates are localised to German.
+    const texts = wrapper.findAll('svg text').map((text) => text.text())
+    for (const date of [OLD_DATE, LATEST_DATE]) {
+      expect(texts).toContain(formatDate(date))
+    }
+  })
+
+  describe('theoretical limit', () => {
+    // The component renders at the fallback width in the unit test
+    // environment, so the expected values can be recomputed independently
+    // with the shared calculation and layout.
+    function expectedEndpointY(): number {
+      const points = chartPointsForCar(1)
+      const reports = reportsForCar(1)
+      const series = buildTheoreticalSeries(points, reports)
+      const layout = computeChartLayout(points, CHART_FALLBACK_WIDTH, series.axisValues)
+      const latest = points[points.length - 1]!
+      return layout.y(theoreticalLimit(reports, latest.date)!)
+    }
+
+    function theoreticalEndpointY(wrapper: VueWrapper): number {
+      const paths = chartSection(wrapper).querySelectorAll('svg path')
+      const tokens = (paths[1]?.getAttribute('d') ?? '').trim().split(' ')
+      return Number(tokens[tokens.length - 1])
+    }
+
+    function resetLines(wrapper: VueWrapper): Element[] {
+      return Array.from(chartSection(wrapper).querySelectorAll('line.stroke-warning'))
+    }
+
+    it('plots the limit as a dashed second series with a legend', () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      const section = chartSection(wrapper)
+
+      const paths = section.querySelectorAll('svg path')
+      expect(paths).toHaveLength(2)
+      expect(paths[0].classList.contains('stroke-primary')).toBe(true)
+      const limit = paths[1]!
+      expect(limit.classList.contains('stroke-warning')).toBe(true)
+      expect(limit.getAttribute('stroke-dasharray')).toBe('3 3')
+
+      // The first report is the oldest point, so the limit runs over every
+      // point and stops at the latest reading like the actual series.
+      const tokens = limit.getAttribute('d')!.trim().split(' ')
+      const circles = wrapper.findAll('circle')
+      expect(tokens[0]).toBe('M')
+      expect(Number(tokens[1])).toBeCloseTo(Number(circles[0].attributes('cx')), 5)
+      expect(Number(tokens[tokens.length - 2])).toBeCloseTo(
+        Number(circles[circles.length - 1].attributes('cx')),
+        5,
+      )
+      expect(theoreticalEndpointY(wrapper)).toBeCloseTo(expectedEndpointY(), 5)
+
+      // The legend identifies both series; its swatches are spans, so the
+      // chart stays the section's only svg.
+      expect(section.textContent).toContain('Actual odometer reading')
+      expect(section.textContent).toContain('Theoretical limit')
+      expect(section.querySelectorAll('svg')).toHaveLength(1)
+    })
+
+    it('draws a dashed vertical reset at each report date after the first', () => {
+      seedHistory()
+      insuranceReports.value.push({
+        id: 22,
+        carId: 1,
+        date: MIDDLE_DATE,
+        odometerReading: MIDDLE_READING,
+        mileagePerYear: 8_000,
+      })
+      const wrapper = mountDetails()
+
+      const lines = resetLines(wrapper)
+      expect(lines).toHaveLength(1)
+      const line = lines[0]!
+      const circles = wrapper.findAll('circle')
+
+      // Vertical at the second report's date, spanning from the incoming
+      // reading to the outgoing trajectory.
+      expect(Number(line.getAttribute('x1'))).toBeCloseTo(Number(circles[1].attributes('cx')), 5)
+      expect(Number(line.getAttribute('x2'))).toBeCloseTo(Number(line.getAttribute('x1')), 5)
+      const ys = [Number(line.getAttribute('y1')), Number(line.getAttribute('y2'))]
+      expect(Math.max(...ys)).toBeCloseTo(Number(circles[1].attributes('cy')), 5)
+      // The top of the line is the first report extended to the second
+      // report date, computed without the second report in force.
+      const points = chartPointsForCar(1)
+      const series = buildTheoreticalSeries(points, reportsForCar(1))
+      const layout = computeChartLayout(points, CHART_FALLBACK_WIDTH, series.axisValues)
+      const outgoing = theoreticalLimit(
+        reportsForCar(1).filter((report) => report.date < MIDDLE_DATE),
+        MIDDLE_DATE,
+      )!
+      expect(Math.min(...ys)).toBeCloseTo(layout.y(outgoing), 5)
+    })
+
+    it('resets once for same-date reports, tie-broken by the highest id', () => {
+      seedHistory()
+      insuranceReports.value.push(
+        { id: 22, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, mileagePerYear: 8_000 },
+        { id: 23, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, mileagePerYear: 9_000 },
+      )
+      const wrapper = mountDetails()
+      expect(resetLines(wrapper)).toHaveLength(1)
+      // After the same-date pair the limit runs from the highest-id report
+      // (cap 9000); the other cap would land the endpoint elsewhere.
+      expect(theoreticalEndpointY(wrapper)).toBeCloseTo(expectedEndpointY(), 5)
+    })
+
+    it('plots no limit before the first report, not even zero', () => {
+      mileageRecords.value = [
+        { id: 13, carId: 1, date: '2025-06-01', odometerReading: 25_000, evaluation: null },
+        { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+      ]
+      insuranceReports.value = [
+        { id: 21, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, mileagePerYear: CAP_PER_YEAR },
+      ]
+      const wrapper = mountDetails()
+
+      const paths = chartSection(wrapper).querySelectorAll('svg path')
+      expect(paths).toHaveLength(2)
+      const tokens = (paths[1]!.getAttribute('d') ?? '').trim().split(' ')
+      const circles = wrapper.findAll('circle')
+
+      // The path starts at the first report date, not at the earlier
+      // reading, and on the report's own reading.
+      expect(tokens[0]).toBe('M')
+      expect(Number(tokens[1])).toBeGreaterThan(Number(circles[0].attributes('cx')))
+      expect(Number(tokens[1])).toBeCloseTo(Number(circles[1].attributes('cx')), 5)
+      expect(Number(tokens[2])).toBeCloseTo(Number(circles[1].attributes('cy')), 5)
+    })
+
+    it('shows the localized hint instead of a legend when no report exists', async () => {
+      mileageRecords.value = [
+        { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+        { id: 12, carId: 1, date: MIDDLE_DATE, odometerReading: MIDDLE_READING, evaluation: null },
+      ]
+      insuranceReports.value = []
+      const wrapper = mountDetails()
+      const section = chartSection(wrapper)
+
+      expect(section.querySelectorAll('svg path')).toHaveLength(1)
+      expect(resetLines(wrapper)).toHaveLength(0)
+      expect(section.textContent).toContain('Add an insurance report to see the theoretical limit.')
+      expect(section.textContent).not.toContain('Actual odometer reading')
+
+      setLocale('de')
+      await nextTick()
+      expect(section.textContent).toContain(
+        'Füge einen Bericht hinzu, um das theoretische Limit zu sehen.',
+      )
+      expect(section.textContent).not.toContain('Tatsächlicher Kilometerstand')
+    })
+
+    it('recomputes the limit from the live report state after mutations', async () => {
+      seedHistory()
+      // Stale cached evaluations on the records: the chart must not read
+      // them.
+      mileageRecords.value = mileageRecords.value.map((record) => ({
+        ...record,
+        evaluation: { theoreticalLimit: 123_456, delta: 1 },
+      }))
+      const wrapper = mountDetails()
+      const section = chartSection(wrapper)
+      expect(section.querySelectorAll('svg path')).toHaveLength(2)
+      expect(theoreticalEndpointY(wrapper)).toBeCloseTo(expectedEndpointY(), 5)
+
+      // Editing the report's cap re-plots the limit.
+      const [report] = insuranceReports.value
+      const before = theoreticalEndpointY(wrapper)
+      insuranceReports.value = [{ ...report!, mileagePerYear: 20_000 }]
+      await nextTick()
+      expect(theoreticalEndpointY(wrapper)).not.toBeCloseTo(before, 5)
+      expect(theoreticalEndpointY(wrapper)).toBeCloseTo(expectedEndpointY(), 5)
+
+      // A new record extends both series to its date.
+      mileageRecords.value.push({
+        id: 13,
+        carId: 1,
+        date: '2026-09-15',
+        odometerReading: 47_000,
+        evaluation: null,
+      })
+      await nextTick()
+      expect(wrapper.findAll('circle')).toHaveLength(4)
+      expect(theoreticalEndpointY(wrapper)).toBeCloseTo(expectedEndpointY(), 5)
+
+      // Deleting the report drops the series and brings back the hint.
+      insuranceReports.value = []
+      await nextTick()
+      expect(section.querySelectorAll('svg path')).toHaveLength(1)
+      expect(section.textContent).toContain('Add an insurance report to see the theoretical limit.')
+    })
+  })
+
+  describe('point inspection', () => {
+    function tooltip(wrapper: VueWrapper): Element | null {
+      return chartSection(wrapper).querySelector('[role="tooltip"]')
+    }
+
+    function dispatch(
+      wrapper: VueWrapper,
+      date: string,
+      type: 'pointerdown' | 'pointerenter' | 'pointerleave',
+      pointerType = 'mouse',
+    ): void {
+      const element = chartSection(wrapper).querySelector(`rect[data-date="${date}"]`)
+      if (!element) throw new Error(`no hit band for ${date}`)
+      element.dispatchEvent(new PointerEvent(type, { pointerType }))
+    }
+
+    async function hover(wrapper: VueWrapper, date: string): Promise<void> {
+      dispatch(wrapper, date, 'pointerenter')
+      await nextTick()
+    }
+
+    async function leave(wrapper: VueWrapper, date: string, pointerType = 'mouse'): Promise<void> {
+      dispatch(wrapper, date, 'pointerleave', pointerType)
+      await nextTick()
+    }
+
+    async function tap(wrapper: VueWrapper, date: string, pointerType = 'touch'): Promise<void> {
+      dispatch(wrapper, date, 'pointerdown', pointerType)
+      await nextTick()
+    }
+
+    it('renders one full-column hit band per point, oldest first', () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      const bands = wrapper.findAll('rect[data-date]')
+      expect(bands).toHaveLength(3)
+      expect(bands.map((band) => band.attributes('data-date'))).toEqual([
+        OLD_DATE,
+        MIDDLE_DATE,
+        LATEST_DATE,
+      ])
+    })
+
+    it('shows the date, reading, source, limit, and over-limit difference on hover', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      const limit = theoreticalLimit(reportsForCar(1), LATEST_DATE)
+      expect(limit).not.toBeNull()
+      expect(tip!.textContent).toContain(formatDate(LATEST_DATE))
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(limit!)}`)
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING - limit!)} km over`)
+    })
+
+    it('shows the under-limit difference for an under-limit reading', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      const limit = theoreticalLimit(reportsForCar(1), MIDDLE_DATE)
+      expect(limit).not.toBeNull()
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(limit!)}`)
+      expect(tip!.textContent).toContain(`${formatKm(limit! - MIDDLE_READING)} km under`)
+    })
+
+    it('shows the reading and source without a limit for records-only histories', async () => {
+      seedHistory()
+      insuranceReports.value = []
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).not.toContain('Theoretical limit')
+    })
+
+    it('never presents the missing limit as zero before the first report', async () => {
+      seedHistory()
+      // Move the only report to the latest date: every earlier point sits
+      // before the first report and has no theoretical limit at all.
+      insuranceReports.value = [
+        {
+          id: 21,
+          carId: 1,
+          date: LATEST_DATE,
+          odometerReading: REPORT_READING,
+          mileagePerYear: CAP_PER_YEAR,
+        },
+      ]
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(formatDate(MIDDLE_DATE))
+      expect(tip!.textContent).toContain(`${formatKm(MIDDLE_READING)} km`)
+      expect(tip!.textContent).toContain('Mileage record')
+      expect(tip!.textContent).not.toContain('Theoretical limit')
+      expect(tip!.textContent).not.toContain('km over')
+      expect(tip!.textContent).not.toContain('km under')
+      expect(tip!.textContent).not.toContain('On limit')
+    })
+
+    it('identifies a report-only reading and shows no reset before the first report', async () => {
+      seedHistory()
+      mileageRecords.value = []
+      const wrapper = mountDetails()
+      await hover(wrapper, OLD_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain('Insurance report')
+      // A report on its own date is on its limit; no earlier report exists to
+      // reset from, so no baseline annotation.
+      expect(tip!.textContent).toContain('On limit')
+      expect(tip!.textContent).not.toContain('New insurance baseline')
+    })
+
+    it('names both sources on a same-date consolidated point', async () => {
+      seedHistory()
+      insuranceReports.value.push({
+        id: 22,
+        carId: 1,
+        date: LATEST_DATE,
+        odometerReading: LATEST_READING,
+        mileagePerYear: CAP_PER_YEAR,
+      })
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      expect(tooltip(wrapper)!.textContent).toContain('Mileage record and insurance report')
+    })
+
+    it('annotates a reset with the new insurance baseline', async () => {
+      seedHistory()
+      insuranceReports.value.push({
+        id: 22,
+        carId: 1,
+        date: MIDDLE_DATE,
+        odometerReading: MIDDLE_READING,
+        mileagePerYear: 8_000,
+      })
+      const wrapper = mountDetails()
+      await hover(wrapper, MIDDLE_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      // The effective limit at the reset date is the incoming report's reading.
+      expect(tip!.textContent).toContain(`Theoretical limit: ${formatKm(MIDDLE_READING)}`)
+      expect(tip!.textContent).toContain('On limit')
+      expect(tip!.textContent).toContain('New insurance baseline')
+    })
+
+    it('localizes the tooltip with the rest of the app', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      setLocale('de')
+      await nextTick()
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain('Theoretisches Limit')
+      expect(tip!.textContent).toContain('km über')
+      expect(tip!.textContent).toContain('Erfassung')
+    })
+
+    it('toggles the inspection on pointer down', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await tap(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).toBeNull()
+
+      await tap(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).not.toBeNull()
+    })
+
+    it('keeps the inspection open on touch pointer leave and closes on the second tap', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await tap(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await leave(wrapper, LATEST_DATE, 'touch')
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await tap(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('dismisses the inspection when the mouse leaves the band', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      await leave(wrapper, LATEST_DATE, 'mouse')
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('dismisses the inspection when the inspected reading is removed', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+      expect(tooltip(wrapper)).not.toBeNull()
+
+      mileageRecords.value = mileageRecords.value.filter((record) => record.date !== LATEST_DATE)
+      await nextTick()
+
+      expect(tooltip(wrapper)).toBeNull()
+    })
+
+    it('updates the inspected values live when the history changes', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+      await hover(wrapper, LATEST_DATE)
+
+      const changed = 46_000
+      mileageRecords.value = mileageRecords.value.map((record) =>
+        record.date === LATEST_DATE ? { ...record, odometerReading: changed } : record,
+      )
+      await nextTick()
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(changed)} km`)
+      expect(tip!.textContent).not.toContain(`${formatKm(LATEST_READING)} km`)
+    })
+
+    it('never opens a modal from the inspection', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+      await tap(wrapper, LATEST_DATE)
+
+      expect(wrapper.find('.umodal-stub').exists()).toBe(false)
+    })
+
+    it('clamps the tooltip to the chart edges at the fallback width', async () => {
+      seedHistory()
+      const wrapper = mountDetails()
+
+      await hover(wrapper, OLD_DATE)
+      expect((tooltip(wrapper)! as HTMLElement).style.left).toBe('0px')
+
+      await hover(wrapper, LATEST_DATE)
+      const rightEdge = CHART_FALLBACK_WIDTH - TOOLTIP_FALLBACK_WIDTH
+      expect((tooltip(wrapper)! as HTMLElement).style.left).toBe(`${rightEdge}px`)
+    })
+
+    it('inspects a single-point history from the centre of the plot', async () => {
+      mileageRecords.value = [
+        { id: 11, carId: 1, date: LATEST_DATE, odometerReading: LATEST_READING, evaluation: null },
+      ]
+      insuranceReports.value = []
+      const wrapper = mountDetails()
+
+      await hover(wrapper, LATEST_DATE)
+
+      const tip = tooltip(wrapper)
+      expect(tip).not.toBeNull()
+      expect(tip!.textContent).toContain(`${formatKm(LATEST_READING)} km`)
+      expect(tip!.textContent).not.toContain('Theoretical limit')
+    })
   })
 })
